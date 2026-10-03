@@ -195,7 +195,8 @@ class MobileDrawer extends ConsumerWidget {
 
             // ── Section: Chung (public + home) ──
             _sectionHeader('Chung'),
-            _tile(context, Icons.home_outlined, 'Trang chủ', AppRoutes.home),
+            _tile(context, Icons.home_outlined, 'Trang chủ', AppRoutes.home,
+                topLevel: true),
             for (final it in NavItems.public)
               _tile(context, it.icon ?? Icons.circle_outlined, it.label,
                   it.route),
@@ -252,7 +253,8 @@ class MobileDrawer extends ConsumerWidget {
         ),
       );
 
-  Widget _tile(BuildContext ctx, IconData icon, String label, String route, {bool highlight = false}) {
+  Widget _tile(BuildContext ctx, IconData icon, String label, String route,
+      {bool highlight = false, bool topLevel = false}) {
     return ListTile(
       dense: true,
       leading: Icon(icon, color: highlight ? AppColors.primary : AppColors.inkSoft, size: 20),
@@ -264,9 +266,15 @@ class MobileDrawer extends ConsumerWidget {
           )),
       onTap: () {
         Navigator.of(ctx).pop(); // close drawer
-        // Push instead of go so Android back pops to the previous page.
-        // See [NavCtx.pushIfDifferent] for rationale.
-        ctx.pushIfDifferent(route);
+        // Top-level destinations (Trang chủ) use go() so a tap always lands
+        // on the tab root — clearing any `?section=` query the user picked
+        // up from a nav link like "Công ty". Drill-ins use pushIfDifferent
+        // so Android back pops to the previous page.
+        if (topLevel) {
+          ctx.go(route);
+        } else {
+          ctx.pushIfDifferent(route);
+        }
       },
     );
   }
