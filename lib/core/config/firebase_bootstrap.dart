@@ -21,6 +21,16 @@ class FirebaseBootstrap {
     if (!kIsWeb) {
       FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
     }
-    await FcmService.instance.initialize();
+    // Hard cap on FCM init — on iOS sideload builds without aps-environment
+    // entitlement, individual messaging APIs can block forever. Flutter must
+    // reach runApp() regardless; FCM features that need a token will light up
+    // later via onTokenRefresh.
+    try {
+      await FcmService.instance
+          .initialize()
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('FCM init did not finish in time: $e');
+    }
   }
 }

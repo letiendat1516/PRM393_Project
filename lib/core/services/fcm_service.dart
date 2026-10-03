@@ -101,7 +101,11 @@ class FcmService {
     } catch (_) {}
 
     messaging.onTokenRefresh.listen(persistToken);
-    await refreshToken();
+    // Fire-and-forget: on iOS, getToken() blocks indefinitely while waiting for
+    // APNS registration. Sideloaded builds (free provisioning profile) have no
+    // aps-environment entitlement, so APNS never answers — awaiting here would
+    // deadlock main() before runApp() and the user sees a white screen.
+    unawaited(refreshToken());
   }
 
   /// Fetches the token (web needs [vapidKey]) and stores it on users/{uid}.
