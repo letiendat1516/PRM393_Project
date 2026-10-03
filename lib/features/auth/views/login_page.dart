@@ -7,7 +7,9 @@ import '../../../core/router/routes.dart';
 import '../../../core/utils/validators.dart';
 import '../../../shared/widgets/auth_shell.dart';
 import '../../../shared/widgets/nav_items.dart';
+import '../../../shared/models/user_model.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../viewmodels/current_user_provider.dart';
 import '../viewmodels/login_viewmodel.dart';
 import '../widgets/auth_buttons.dart';
 import '../widgets/auth_form_widgets.dart';
@@ -62,18 +64,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _googleBusy = true);
     try {
       await ref.read(authServiceProvider).signInWithGoogle();
-      // Email/password path uses an explicit context.go() when the view-model
-      // reports success — do the same here. Relying only on the router's
-      // auth-state redirect races against currentUserProvider: for brand-new
-      // Google accounts the users/{uid} doc is written *after*
-      // signInWithCredential fires authStateChanges, so the first redirect
-      // cycle sees current.isLoading=true and no-ops; the second cycle
-      // depends on the Firestore snapshot stream arriving — users reported
-      // the login page just stuck. Firing go() ourselves guarantees the
-      // transition, and the router's role-based redirect still fires for
-      // admin → /admin/users once the role is known.
-      if (!mounted) return;
-      context.go(AppRoutes.home);
+      // Navigation is handled by the currentUserProvider listener in build()
+      // — it fires as soon as users/{uid} resolves and uses the role to pick
+      // the correct landing page. Doing it here too raced with the router's
+      // own auth-state redirect and users still got stuck on /dang-nhap.
     } catch (e) {
       if (!mounted) return;
       final msg =
@@ -92,6 +86,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Google sign-in doesn't go through LoginViewModel, so the vm.success
+    // listener below never fires on that path. Previously we tried an
+    // imperative context.go() right after signInWithGoogle resolved, but
+    // users still reported being stuck on /dang-nhap — likely because that
+    // call races the router's own auth-state redirect cycle. React to the
+    // actual state transition instead: as soon as currentUserProvider flips
+    // from "no user" to "user", navigate home. This works regardless of
+    // which auth path produced the user (Google, email/password, cold-start
+    // session restore) and uses the fully-loaded role so admins land on
+    // /admin/users directly.
+    ref.listen<AsyncValue<UserModel?>>(currentUserProvider, (prev, next) {
+      final user = next.valueOrNull;
+      if (user == null) return;
+      if (prev?.valueOrNull != null) return; // already signed in last tick
+      if (!context.mounted) return;
+      context.go(NavItems.homeFor(user.role));
+    });
+
     ref.listen<LoginState>(loginViewModelProvider, (prev, next) {
       if (next.success && !(prev?.success ?? false)) {
         context.go(NavItems.homeFor(next.user!.role));
