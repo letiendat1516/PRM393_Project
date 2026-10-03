@@ -1,0 +1,23 @@
+{
+  "name": "crawl-topcv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright-based crawler for TopCV job listings → JobHub seed data",
+  "scripts": {
+    "probe": "node probe.js",
+    "crawl": "node crawl.js",
+    "crawl:headed": "node crawl.js",
+    "crawl:headless": "node crawl.js --headless=1",
+    "generate": "node generate.js",
+    "transform": "node transform.js",
+    "export-frontend": "node export-frontend.js",
+    "extract-categories": "node extract-categories.js"
+  },
+  "dependencies": {
+    "@fontsource/roboto": "^5.2.10",
+    "firebase-admin": "^14.5.0",
+    "pdfkit": "^0.19.1",
+    "playwright": "^1.49.0"
+  }
+}

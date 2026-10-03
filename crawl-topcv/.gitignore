@@ -1,0 +1,10 @@
+# Node
+node_modules/
+
+# Crawl output (large, regenerable)
+data/
+
+# Firebase Admin SDK credentials — never commit
+firebase-admin-sa.json
+*-sa.json
+*firebase-adminsdk*.json

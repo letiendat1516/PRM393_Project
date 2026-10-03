@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="JobHub — nền tảng tuyển dụng thông minh ứng dụng AI, giúp ứng viên tìm đúng việc và doanh nghiệp tìm đúng người.">
+  <meta name="theme-color" content="#0F4C81">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="JobHub">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon (ported from frontend/public/favicon.svg) -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <!-- Fonts (index.html of the web app): Plus Jakarta Sans + Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <title>JobHub — Nền tảng tuyển dụng ứng dụng AI</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { background: #F8FAFC; margin: 0; }
+    #jobhub-splash { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 14px; font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif; color: #0F4C81; }
+    #jobhub-splash .ring { width: 36px; height: 36px; border: 3px solid #D8E9F7; border-top-color: #0F4C81;
+      border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="jobhub-splash"><img src="assets/assets/images/logo_jobhub.png" alt="JobHub" style="height:44px;width:auto"><div class="ring"></div></div>
+  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var s = document.getElementById('jobhub-splash'); if (s) s.remove();
+    });
+  </script>
+</body>
+</html>

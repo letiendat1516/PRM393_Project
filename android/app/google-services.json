@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "718109953815",
+    "project_id": "jobhub-prm393-g3",
+    "storage_bucket": "jobhub-prm393-g3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:718109953815:android:2942fd9a90ae208497b152",
+        "android_client_info": {
+          "package_name": "com.example.jobhub_prm393"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "718109953815-v9lht8ig1smsc2f7ufdhblb8bl90ddhp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.jobhub_prm393",
+            "certificate_hash": "6ebfa85fe13658af8474f97b9ebd1fe99be5e0ae"
+          }
+        },
+        {
+          "client_id": "718109953815-0kqfhul4m3v386bunhe7fn8cns7mnteh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAiMria4_NhLEXgxlBoUc39fdjQSnxX07E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "718109953815-0kqfhul4m3v386bunhe7fn8cns7mnteh.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "718109953815-0m4stvd2f5h2t55eq3m055o4itshmj08.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.jobhubPrm393"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

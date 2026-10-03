@@ -1,0 +1,51 @@
+@startuml sequence-extract-cv
+' =====================================================================
+' Module 1 — AI RESUME EXTRACTION  (Use Case UC04 + UC23)
+' Flow: Upload CV (PDF/TXT) → trích text → DeepSeek trả structured JSON
+'       (skills, soft_skills, experience, education, languages, ...)
+' Endpoint: POST /api/recommendations/extract-cv
+' =====================================================================
+!theme plain
+skinparam maxMessageSize 160
+skinparam ArrowFontSize 11
+autonumber
+
+title Module 1 — AI Resume Extraction (UC04 + UC23)\nUpload CV → trích xuất structured JSON bằng DeepSeek
+
+actor "Ứng viên" as User
+participant "AIScoreModal\n(Frontend)" as Modal
+participant "recommendationService\n(apiClient)" as Api
+participant "RecommendationController" as Ctrl
+participant "promptBuilder" as Prompt
+participant "deepseekClient" as DS
+database "DeepSeek API\n(ngoài hệ thống)" as AI <<external>>
+participant "aiLogger" as Logger
+database "Supabase DB\n(ai_matching_log)" as DB
+collections "ai-lab/logs/*.json" as File <<file>>
+
+User -> Modal: Upload file CV (.pdf / .txt / .doc)
+Modal -> Modal: pdfjs-dist đọc PDF trong browser\n→ resumeText (cắt tối đa 8000 ký tự)
+Modal -> Api: POST /recommendations/extract-cv {resumeText}
+Api -> Ctrl: extractCv(req)
+Ctrl -> Ctrl: Validate resumeText ≥ 20 ký tự
+Ctrl -> Prompt: buildResumeExtractionPrompt(resumeText)
+note right of Prompt: Yêu cầu DeepSeek trả JSON đúng schema:\nskills[], soft_skills[], total_experience_years,\neducation_level, languages[], certifications[],\nwork_experience[], summary
+Prompt --> Ctrl: messages[] (system + user)
+Ctrl -> DS: chatCompletion({task:'resume_extraction', messages})
+
+DS -> AI: POST {BASE_URL}/chat/completions\nheaders: Authorization: Bearer <API_KEY>\nbody: {model, messages, temperature:0,\n      response_format:{type:'json_object'}}
+AI --> DS: {choices[0].message.content,\n   usage{prompt_tokens, completion_tokens}}
+
+DS -> Logger: logAiCall({task, model, prompt, response,\n   processingTimeMs, tokensIn/Out, success, metadata})
+activate Logger
+Logger -> DB: INSERT INTO ai_matching_log\n(prompt_text, response_text, model_name,\n task, tokens_in/out, processing_time_ms)
+Logger -> File: writeFile ai_<timestamp>.json
+deactivate Logger
+
+DS --> Ctrl: {content, tokensIn, tokensOut}
+Ctrl -> Ctrl: JSON.parse(content)\n(báo 502 Bad Gateway nếu sai format)
+Ctrl --> Api: 200 OK {extracted, tokensIn, tokensOut}
+Api --> Modal: CV có cấu trúc
+Modal --> User: Sẵn sàng chấm điểm với CV vừa trích xuất
+
+@enduml

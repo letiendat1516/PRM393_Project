@@ -1,0 +1,282 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/data/demo_data.dart';
+import '../../../core/providers.dart';
+import '../../../core/services/firestore_refs.dart';
+import '../../../core/utils/enums.dart';
+import '../../../core/utils/failure.dart';
+import '../../../shared/models/employer_profile_model.dart';
+import '../../../shared/models/job_model.dart';
+
+/// Firestore access for the public job catalogue (JobsPage, JobDetailPage,
+/// CompanyDetailPage). Mirrors backend JobRepository.searchJobs public
+/// semantics: `isApproved == true && status == 'OPEN'`, `createdAt desc`.
+///
+/// The web app merges 12 hard-coded sample jobs (data/jobsList.js) into every
+/// list and resolves `/viec-lam/:id` mock-first, so the same demo content is
+/// served here from [DemoData.sampleJobs].
+class JobsRepository {
+  JobsRepository(this._refs);
+  final FirestoreRefs _refs;
+
+  /// Hard upper bound on a single `watchPublicJobs` fetch. Callers now
+  /// drive the actual limit (`JobsSearchViewModel.loadedLimit`, 3 pages
+  /// × pageSize) so the initial payload stays small; the total page
+  /// count comes from [countPublicJobs] regardless of what is loaded.
+  static const int publicLimit = 10000;
+
+  /// Default lazy chunk the ViewModel asks for first: 3 pages of 10 jobs.
+  static const int defaultChunk = 30;
+
+  /// Public employer job list limit (/employers/:id/jobs → limit 100).
+  static const int employerLimit = 100;
+
+  Query<JobModel> _publicQuery() => _refs
+      .jobs()
+      .where('isApproved', isEqualTo: true)
+      .where('status', isEqualTo: 'OPEN');
+
+  /// Live list of every public job (approved + OPEN), newest first.
+  ///
+  /// When [keyword] is non-empty, the stream chains
+  /// `where('titleTokens', arrayContainsAny: tokens)` (≤10 tokens, backed by
+  /// JobModel.tokenize + the titleTokens index) so searches scale past the
+  /// 1000-doc fetch cap. The client-side viewmodel still refines by
+  /// city/workMode/jobType/etc.
+  ///
+  /// At most ONE server-side facet ([city], [workMode] or [jobType]) is
+  /// applied via [_applyFacetFilter] so single-facet filtering happens in
+  /// Firestore instead of pulling the whole 9800-doc catalogue into the
+  /// client (which OOMs the Android debug heap). Everything else stays
+  /// client-side on the loaded window.
+  Stream<List<JobModel>> watchPublicJobs({
+    String keyword = '',
+    String? city,
+    WorkMode? workMode,
+    JobType? jobType,
+    int limit = publicLimit,
+  }) {
+    if (_isUnmatchableKeyword(keyword)) {
+      return Stream.value(const <JobModel>[]);
+    }
+    final tokens = _searchTokens(keyword);
+    Query<JobModel> q = _publicQuery();
+    if (tokens.isNotEmpty) {
+      q = q.where('titleTokens', arrayContainsAny: tokens);
+    }
+    q = _applyFacetFilter(q, city: city, workMode: workMode, jobType: jobType);
+    return _guard(
+      q
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .snapshots()
+          .map((s) => s.docs.map((d) => d.data()).toList()),
+    );
+  }
+
+  /// Chains ONE equality facet onto [query], priority `city > workMode >
+  /// jobType`. Composite indexes only exist for a single facet on top of the
+  /// base `(isApproved, status)` (+ optional titleTokens) query — passing two
+  /// facets at once would fail with FAILED_PRECONDITION, so the [assert]
+  /// flags buggy callers in debug builds and the extra facets simply drop
+  /// (the client-side pass still applies them on the loaded window).
+  Query<JobModel> _applyFacetFilter(
+    Query<JobModel> query, {
+    String? city,
+    WorkMode? workMode,
+    JobType? jobType,
+  }) {
+    assert(
+      (city != null ? 1 : 0) +
+              (workMode != null ? 1 : 0) +
+              (jobType != null ? 1 : 0) <=
+          1,
+      'watchPublicJobs/countPublicJobs support at most ONE server-side facet '
+      '(priority city > workMode > jobType); keep the rest client-side.',
+    );
+    if (city != null) return query.where('city', isEqualTo: city);
+    if (workMode != null) {
+      return query.where('workMode', isEqualTo: enumToWire(workMode));
+    }
+    if (jobType != null) {
+      return query.where('jobType', isEqualTo: enumToWire(jobType));
+    }
+    return query;
+  }
+
+  /// Firestore `arrayContainsAny` caps at 10 operands. We feed it the first
+  /// 10 tokenised fragments of the user's keyword (matches titleTokens on write).
+  static List<String> _searchTokens(String keyword) {
+    final k = keyword.trim();
+    if (k.isEmpty) return const [];
+    final tokens = JobModel.tokenize(k).take(10).toList(growable: false);
+    return tokens;
+  }
+
+  /// True when the user typed something non-empty that [JobModel.tokenize]
+  /// cannot turn into a search token (e.g. a single character). Without
+  /// this guard the Firestore query drops the `arrayContainsAny` clause
+  /// entirely and returns every public job, which to the user looks like
+  /// "typed 'c', got 9800 results".
+  static bool _isUnmatchableKeyword(String keyword) {
+    final trimmed = keyword.trim();
+    return trimmed.isNotEmpty && _searchTokens(trimmed).isEmpty;
+  }
+
+  /// Full count of public jobs matching [keyword] (and the same single
+  /// server-side facet [watchPublicJobs] honours) via Firestore aggregation
+  /// (`.count().get()`) — one Firestore read regardless of dataset size.
+  /// Used by [JobsSearchViewModel] so the pagination widget can show
+  /// 'N việc làm' without paying for a 9800-doc stream when the user only
+  /// looks at page 1.
+  Future<int> countPublicJobs({
+    String keyword = '',
+    String? city,
+    WorkMode? workMode,
+    JobType? jobType,
+  }) async {
+    if (_isUnmatchableKeyword(keyword)) return 0;
+    final tokens = _searchTokens(keyword);
+    Query<JobModel> q = _publicQuery();
+    if (tokens.isNotEmpty) {
+      q = q.where('titleTokens', arrayContainsAny: tokens);
+    }
+    q = _applyFacetFilter(q, city: city, workMode: workMode, jobType: jobType);
+    try {
+      final agg = await q.count().get();
+      return agg.count ?? 0;
+    } catch (e) {
+      throw Failure.from(e);
+    }
+  }
+
+  /// Mock-first job lookup (JobDetailPage): a sample job short-circuits the
+  /// network, otherwise `jobs/{id}` is streamed. Emits `null` when missing —
+  /// including when the security rules deny the read (CLOSED / unapproved
+  /// job for a non-owner), which the web reports as 404
+  /// 'Việc làm bạn tìm không tồn tại hoặc đã bị đóng.' rather than a
+  /// permissions error.
+  Stream<JobModel?> watchJob(String jobId) {
+    final mock = mockJobById(jobId);
+    if (mock != null) return Stream.value(mock);
+    return _refs
+        .jobs()
+        .doc(jobId)
+        .snapshots()
+        .map<JobModel?>((s) => s.data())
+        .transform(
+          StreamTransformer<JobModel?, JobModel?>.fromHandlers(
+            handleError: (e, st, sink) {
+              final f = Failure.from(e);
+              if (f.code == 'FORBIDDEN' || f.code == 'NOT_FOUND') {
+                sink.add(null);
+              } else {
+                sink.addError(f, st);
+              }
+            },
+          ),
+        );
+  }
+
+  /// Public jobs of one employer (CompanyDetailPage / related jobs).
+  Stream<List<JobModel>> watchEmployerPublicJobs(
+    String employerUid, {
+    int limit = employerLimit,
+  }) {
+    if (isDemoEmployer(employerUid)) {
+      return Stream.value(
+        DemoData.sampleJobs()
+            .where((j) => j.employerId == employerUid)
+            .toList(),
+      );
+    }
+    return _guard(
+      _publicQuery()
+          .where('employerId', isEqualTo: employerUid)
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .snapshots()
+          .map((s) => s.docs.map((d) => d.data()).toList()),
+    );
+  }
+
+  /// employerProfiles/{uid}; demo employers are synthesised from the sample
+  /// jobs so mock job → company links keep working.
+  Stream<EmployerProfile?> watchEmployerProfile(String employerUid) {
+    if (isDemoEmployer(employerUid)) {
+      return Stream.value(demoEmployerProfile(employerUid));
+    }
+    return _guard(
+      _refs
+          .employerProfiles()
+          .doc(employerUid)
+          .snapshots()
+          .map((s) => s.data()),
+    );
+  }
+
+  // ── Demo helpers ──────────────────────────────────────────────────────
+
+  static bool isDemoEmployer(String uid) => uid.startsWith('demo-');
+
+  static JobModel? mockJobById(String id) {
+    for (final j in DemoData.sampleJobs()) {
+      if (j.jobId == id) return j;
+    }
+    return null;
+  }
+
+  static EmployerProfile? demoEmployerProfile(String uid) {
+    for (final j in DemoData.sampleJobs()) {
+      if (j.employerId == uid) {
+        return EmployerProfile(
+          uid: uid,
+          companyName: j.employerName,
+          city: j.employerCity ?? j.city,
+          industry: j.categoryName,
+          logoUrl: j.employerLogoUrl,
+          website: j.employerWebsite,
+          isVerified: true,
+          openPositions: DemoData.sampleJobs()
+              .where((x) => x.employerId == uid)
+              .length,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// jobMapper.mergeJobs parity: mock entries first, then database jobs that
+  /// are public, de-duplicated by id. Once Firestore has a real dataset
+  /// (>= [mockFallbackThreshold] public jobs — e.g. after the crawl-topcv
+  /// import), the SYN- mocks are dropped so they don't dilute real results.
+  static const int mockFallbackThreshold = 50;
+
+  static List<JobModel> mergeWithMocks(List<JobModel> apiJobs) {
+    final publicApi = [
+      for (final j in apiJobs)
+        if (j.jobId.isNotEmpty && j.isPublic) j,
+    ];
+    if (publicApi.length >= mockFallbackThreshold) {
+      return publicApi;
+    }
+    final out = <String, JobModel>{};
+    for (final m in DemoData.sampleJobs()) {
+      out[m.jobId] = m;
+    }
+    for (final j in publicApi) {
+      out.putIfAbsent(j.jobId, () => j);
+    }
+    return out.values.toList();
+  }
+
+  Stream<T> _guard<T>(Stream<T> s) =>
+      s.handleError((Object e) => throw Failure.from(e));
+}
+
+final jobsRepositoryProvider = Provider<JobsRepository>(
+  (ref) => JobsRepository(ref.watch(firestoreRefsProvider)),
+);

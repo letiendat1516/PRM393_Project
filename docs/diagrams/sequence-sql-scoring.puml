@@ -1,0 +1,42 @@
+@startuml sequence-sql-scoring
+' =====================================================================
+' Module 1 — RULE-BASED SCORING  (đường nhanh của AI Matching)
+' Chấm điểm CV vs jobs KHÔNG cần gọi AI → deterministic, miễn phí, tức thì.
+' Endpoint: POST /api/recommendations/score-sql
+' =====================================================================
+!theme plain
+skinparam maxMessageSize 160
+skinparam ArrowFontSize 11
+autonumber
+
+title Module 1 — Rule-Based Scoring (POST /recommendations/score-sql)\nDeterministic · không gọi AI · miễn phí · tức thì
+
+actor "Ứng viên" as User
+participant "Frontend" as FE
+participant "RecommendationController\n(scoreJobsSql)" as Ctrl
+
+User -> FE: Chọn phương án "SQL scoring"
+FE -> Ctrl: POST /recommendations/score-sql\n{ cv: {skills[], soft_skills[], experience_years,\n       education_level, languages[], work_experience},\n  jobs: [...] }
+Ctrl -> Ctrl: Validate cv + jobs[]
+
+loop Mỗi job trong danh sách
+  Ctrl -> Ctrl: 1. Skills match ............ 0–30\n   (so khớp kỹ năng CV vs job)
+  Ctrl -> Ctrl: 2. Experience .............. 0–20\n   (năm KN vs min_experience_years)
+  Ctrl -> Ctrl: 3. Education ............... 0–10\n   (High School/Bachelor/Master/PhD)
+  Ctrl -> Ctrl: 4. Domain .................. 0–15\n   (industry overlap với work_experience)
+  Ctrl -> Ctrl: 5. Soft skills ............. 0–10
+  Ctrl -> Ctrl: 6. Language ................ 0–5
+  Ctrl -> Ctrl: 7. Career fit .............. 0–10\n   (penalty nếu overqualified / lệch lớn)
+  Ctrl -> Ctrl: match_score = tổng (cap 100)\n+ matched_skills, missing_skills, strengths,\n recommendation_reason
+end
+
+Ctrl --> FE: 200 OK { scores[], method:'sql' }
+FE --> User: Hiển thị kết quả ngay lập tức
+
+note over User, Ctrl
+  Khác biệt với AI scoring:
+  • Không gọi DeepSeek → 0 token, 0 chi phí, không rate-limit.
+  • Cùng input luôn ra cùng output (deterministic).
+  • Dùng để so sánh / kiểm chứng kết quả AI, hoặc chạy nhanh khi không cần lý do chi tiết.
+end note
+@enduml

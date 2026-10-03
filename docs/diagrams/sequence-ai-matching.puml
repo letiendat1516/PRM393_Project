@@ -1,0 +1,90 @@
+@startuml sequence-ai-matching
+' =====================================================================
+' Module 1 — AI JOB MATCHING  (Use Case UC10 + UC23 — USP của dự án)
+' Flow: Ứng viên chọn/UPLOAD CV → DeepSeek chấm điểm phù hợp
+'       với danh sách jobs đã filter (≤100), theo batch + retry + concurrency.
+' Endpoint chính: POST /api/recommendations/score
+' =====================================================================
+!theme plain
+skinparam maxMessageSize 160
+skinparam ParticipantPadding 8
+skinparam ArrowFontSize 11
+skinparam NoteFontSize 10
+autonumber
+
+title Module 1 — AI Job Matching (UC10 + UC23)\nDeepSeek chấm điểm CV vs danh sách việc làm
+
+actor "Ứng viên\n(Job Seeker)" as User
+participant "AIScoreModal\n(JobsPage, React)" as Modal
+participant "recommendationService\n(apiClient)" as Api
+participant "RecommendationController" as Ctrl
+participant "promptBuilder" as Prompt
+participant "deepseekClient" as DS
+database "DeepSeek API\n(ngoài hệ thống)" as AI <<external>>
+participant "aiLogger" as Logger
+database "Supabase DB\n(ai_matching_log)" as DB
+collections "ai-lab/logs/*.json" as File <<file>>
+
+User -> Modal: Bấm "AI Matching"\n(danh sách jobs đã filter ≤100)
+Modal --> User: Hiển thị modal chọn CV
+
+alt CV mẫu (đã trích xuất sẵn)
+  User -> Modal: Chọn CV preset
+  note right of Modal: skills/soft_skills/exp/edu\nđã có sẵn, bỏ qua bước extract
+else CV upload (PDF / TXT)
+  User -> Modal: Upload file CV
+  Modal -> Modal: pdfjs-dist trích text (chạy trong browser)
+  Modal -> Api: POST /recommendations/extract-cv {resumeText}
+  Api -> Ctrl: extractCv(req)
+  Ctrl -> Prompt: buildResumeExtractionPrompt(resumeText)
+  Prompt --> Ctrl: messages[] (system + user)
+  Ctrl -> DS: chatCompletion({task:'resume_extraction', messages})
+  DS -> AI: POST /chat/completions\n(temperature=0, response_format=json_object)
+  AI --> DS: {choices[0].message.content,\n   usage{prompt/completion_tokens}}
+  DS -> Logger: logAiCall({task, prompt, response, tokens, ms})
+  activate Logger
+  Logger -> DB: INSERT INTO ai_matching_log
+  Logger -> File: writeFile ai_<timestamp>.json
+  deactivate Logger
+  DS --> Ctrl: {content, tokensIn, tokensOut}
+  Ctrl -> Ctrl: JSON.parse(content)
+  Ctrl --> Api: 200 OK {extracted, tokens}
+  Api --> Modal: CV có cấu trúc {skills, soft_skills,\n  experience_years, education_level, ...}
+end
+
+User -> Modal: Bấm "Chấm điểm với AI"
+Modal -> Modal: Chia jobs thành batch (BATCH_SIZE = 10)
+
+group Mỗi batch  (MAX_CONCURRENCY = 2 song song, MAX_RETRIES = 2)
+  Modal -> Api: POST /recommendations/score {cv, batch}
+  Api -> Ctrl: scoreJobs(req)
+  Ctrl -> Ctrl: Validate: có cv, jobs[],\nvà jobs.length ≤ 100
+  Ctrl -> Prompt: buildJobMatchingPrompt(cv, batch)
+  note right of Prompt: Rubric 100đ, 7 tiêu chí:\nskills(30)·exp(20)·edu(10)·\ndomain(15)·soft(10)·lang(5)·fit(10)
+  Prompt --> Ctrl: messages[] (rubric + CV + jobs)
+  Ctrl -> DS: chatCompletion({task:'job_matching', messages})
+  DS -> AI: POST /chat/completions (json_object)
+  AI --> DS: [{job_id, match_score, weights,\n   score_breakdown, recommendation_reason, ...}]
+  DS -> Logger: logAiCall({task, prompt, response, tokens, ms})
+  activate Logger
+  Logger -> DB: INSERT INTO ai_matching_log
+  Logger -> File: writeFile ai_<timestamp>.json
+  deactivate Logger
+  DS --> Ctrl: {content, tokensIn, tokensOut}
+  Ctrl -> Ctrl: JSON.parse → retry 1 lần\nnếu DeepSeek trả JSON sai format
+  Ctrl --> Api: 200 OK {scores, tokensIn, tokensOut}
+  Api --> Modal: scores của batch
+  Modal -> User: Cập nhật progress (đã xử lý X/Y việc làm)
+end
+
+Modal -> Modal: Merge scores từ tất cả batch\n→ scoreMap { job_id: score }
+Modal --> User: Hiển thị kết quả xếp hạng (cao → thấp)\nmatch_score · recommendation_reason · missing_skills
+
+User -> Modal: "Lưu kết quả"
+Modal -> Modal: saveSession() → localStorage\n(tạo 1 phiên xem lại tại /de-xuat)
+Modal -> Api: POST /recommendations/save {cvName, scores, jobs}
+Api -> Ctrl: saveScores(req)
+note right of Ctrl: TODO: khi có auth sẽ INSERT\nvào bảng job_recommendation
+Ctrl --> Api: 200 OK {saved, cvId, cvName}
+Api --> Modal: Đã lưu
+@enduml

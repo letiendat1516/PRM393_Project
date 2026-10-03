@@ -1,0 +1,51 @@
+@startuml sequence-ai-logs
+' =====================================================================
+' Module 1 — AI LOGGING (ghi) + VIEWING (đọc)
+' WRITE  : mọi lần gọi DeepSeek → aiLogger → DB (ai_matching_log) + file.
+' READ   : GET /api/recommendations/logs → đọc ai-lab/logs/*.json
+' Mục đích: theo dõi + cải thiện prompt (folder ai-lab/).
+' =====================================================================
+!theme plain
+skinparam maxMessageSize 160
+skinparam ArrowFontSize 11
+autonumber
+
+title Module 1 — AI Logging & Viewing\nGhi lại mọi lời gọi DeepSeek + xem lại để cải thiện prompt
+
+actor "Ứng viên / Admin" as User
+participant "deepseekClient" as DS
+database "DeepSeek API" as AI <<external>>
+participant "aiLogger\n(logAiCall)" as Logger
+database "Supabase DB\n(ai_matching_log)" as DB
+collections "ai-lab/logs/*.json" as File <<file>>
+participant "AiLogsPage\n(Frontend)" as Page
+participant "RecommendationController\n(getAiLogs)" as Ctrl
+
+== GHI LOG (mỗi lần gọi AI — chạy ngầm trong finally) ==
+User -> DS: (kích hoạt bất kỳ AI call nào:\nextract-cv / score)
+DS -> AI: POST /chat/completions
+AI --> DS: {content, usage{tokens}}
+DS -> Logger: finally → logAiCall({task, model, prompt,\n  response, processingTimeMs, tokensIn/Out, success, error, metadata})
+
+par Ghi song song 2 nơi
+  Logger -> DB: INSERT INTO ai_matching_log\n(best-effort, không block nếu fail)
+else
+  Logger -> File: mkdir + writeFile ai_<ts>.json\n(timestamp + random id)
+end
+
+Logger --> DS: log entry (đã ghi xong)
+DS --> User: trả kết quả AI
+
+== XEM LOG (trang /ai-logs) ==
+User -> Page: Mở trang "AI Logs"
+Page -> Ctrl: GET /recommendations/logs?limit=50
+Ctrl -> File: fs.readdir(LOGS_DIR)\n→ sort().reverse().slice(0, limit)
+File --> Ctrl: danh sách file JSON gần nhất
+loop Mỗi file
+  Ctrl -> File: readFile + JSON.parse
+  File --> Ctrl: log entry {task, prompt, response, tokens, ms, success}
+end
+Ctrl --> Page: 200 OK { logs[] }
+Page --> User: Bảng log: task · model · tokens · thời gian ·\nthành công/thất bại (để phân tích + tinh chỉnh prompt)
+
+@enduml

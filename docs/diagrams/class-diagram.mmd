@@ -1,0 +1,239 @@
+classDiagram
+    direction TB
+
+    class JobSeeker {
+        <<entity>>
+        - jobSeekerId: Long «PK»
+        - fullName: String
+        - email: String
+        - passwordHash: String
+        - phone: String
+        - address: String
+        - city: String
+        - headline: String
+        - profileSummary: String
+        - isOpenToWork: Boolean
+        - isVerified: Boolean
+        - createdAt: DateTime
+        + updateProfile(info): void
+        + applyToJob(jobId, resumeId): Application
+        + saveJob(jobId): void
+    }
+
+    class Employer {
+        <<entity>>
+        - employerId: Long «PK»
+        - companyName: String
+        - email: String
+        - passwordHash: String
+        - phone: String
+        - website: String
+        - companyDescription: String
+        - city: String
+        - contactName: String
+        - gender: String
+        - isVerified: Boolean
+        - createdAt: DateTime
+        + updateProfile(info): void
+        + postJob(data): Job
+        + closeJob(jobId): void
+    }
+
+    class Admin {
+        <<entity>>
+        - adminId: Long «PK»
+        - fullName: String
+        - email: String
+        - passwordHash: String
+        - createdAt: DateTime
+        + approveJob(jobId): void
+        + rejectJob(jobId): void
+    }
+
+    class Category {
+        <<entity>>
+        - categoryId: Long «PK»
+        - name: String
+    }
+
+    class Skill {
+        <<entity>>
+        - skillId: Long «PK»
+        - skillName: String
+        - createdAt: DateTime
+    }
+
+    class Resume {
+        <<entity>>
+        - resumeId: Long «PK»
+        - jobSeekerId: Long «FK»
+        - title: String
+        - fileName: String
+        - filePath: String
+        - isPrimary: Boolean
+        - uploadDate: DateTime
+        + upload(file): Resume
+        + setPrimary(): void
+        + remove(): void
+    }
+
+    class AiAnalysis {
+        <<entity>>
+        - analysisId: Long «PK»
+        - resumeId: Long «FK»
+        - summary: String
+        - extractedSkills: Json
+        - totalExperienceYears: Decimal
+        - educationLevel: String
+        - rawText: String
+        - modelVersion: String
+        - analyzedAt: DateTime
+        + extract(rawText): void
+        + getSkills(): SkillList
+    }
+
+    class Job {
+        <<entity>>
+        - jobId: Long «PK»
+        - employerId: Long «FK»
+        - categoryId: Long «FK»
+        - jobTitle: String
+        - jobDescription: String
+        - salaryMin: Decimal
+        - salaryMax: Decimal
+        - salaryCurrency: String
+        - salaryPeriod: SalaryPeriod
+        - isSalaryNegotiable: Boolean
+        - location: String
+        - city: String
+        - country: String
+        - workMode: WorkMode
+        - jobType: JobType
+        - experienceLevel: ExperienceLevel
+        - positionsAvailable: Integer
+        - applicationDeadline: Date
+        - status: JobStatus
+        - isApproved: Boolean
+        - createdAt: DateTime
+        + publish(): void
+        + close(): void
+        + updateInfo(data): void
+        + isExpired(): Boolean
+    }
+
+    class Application {
+        <<entity>>
+        - applicationId: Long «PK»
+        - jobSeekerId: Long «FK»
+        - jobId: Long «FK»
+        - resumeId: Long «FK»
+        - coverLetter: String
+        - applicationDate: DateTime
+        - status: ApplicationStatus
+        + submit(): void
+        + withdraw(): void
+        + changeStatus(newStatus): void
+    }
+
+    class JobRecommendation {
+        <<entity>>
+        - recommendationId: Long «PK»
+        - jobSeekerId: Long «FK»
+        - jobId: Long «FK»
+        - resumeId: Long «FK»
+        - matchScore: Decimal
+        - recommendationReason: String
+        - status: RecommendationStatus
+        - generatedAt: DateTime
+        + generate(): void
+        + dismiss(): void
+        + markApplied(): void
+    }
+
+    class Notification {
+        <<entity>>
+        - notificationId: Long «PK»
+        - jobSeekerId: Long «FK»
+        - employerId: Long «FK»
+        - type: String
+        - title: String
+        - message: String
+        - isRead: Boolean
+        - createdAt: DateTime
+        + send(): void
+        + markAsRead(): void
+    }
+
+    class AiMatchingLog {
+        <<entity>>
+        - logId: Long «PK»
+        - jobSeekerId: Long «FK»
+        - promptText: String
+        - responseText: String
+        - modelName: String
+        - totalJobsSent: Integer
+        - processingTimeMs: Integer
+        - task: String
+        - tokensIn: Integer
+        - tokensOut: Integer
+        - success: Boolean
+        - error: String
+        - createdAt: DateTime
+        + log(entry): void
+    }
+
+    class JobSeekerSkill {
+        <<association>>
+        - jobSeekerId: Long «PK,FK»
+        - skillId: Long «PK,FK»
+        - experienceYears: Decimal
+        - skillDetail: String
+        - source: SkillSource
+    }
+
+    class JobSkill {
+        <<association>>
+        - jobId: Long «PK,FK»
+        - skillId: Long «PK,FK»
+        - isRequired: Boolean
+        - minExperienceYears: Decimal
+        - weight: Integer
+    }
+
+    class SavedJob {
+        <<association>>
+        - jobSeekerId: Long «PK,FK»
+        - jobId: Long «PK,FK»
+        - savedAt: DateTime
+    }
+
+    note for AiAnalysis "extractedSkills (Json) chua toan bo ket qua AI extract tu CV: skills, workExperience, educationLevel, languages, ..."
+
+    %% ===== RELATIONSHIPS (UML conventions) =====
+    %% Composition (◆) = ON DELETE CASCADE : phan phu thuoc vong doi vao whole
+    %% Aggregation (◇) = whole-part nhung phan ton tai doc lap (SET NULL)
+    %% Association (—) = quan he tham chieu
+
+    JobSeeker "1" *-- "*" Resume : owns
+    Resume "1" *-- "1" AiAnalysis : analyzedBy
+
+    Employer "1" *-- "*" Job : posts
+    Category "1" o-- "*" Job : classifies
+
+    JobSeeker "1" *-- "*" Application : submits
+    Job "1" *-- "*" Application : receives
+    Resume "0..1" o-- "*" Application : attachedTo
+
+    JobSeeker "1" *-- "*" JobRecommendation : receives
+    Job "1" *-- "*" JobRecommendation : matchedIn
+    Resume "0..1" o-- "*" JobRecommendation : basisOf
+
+    JobSeeker "0..1" *-- "*" Notification : notifies
+    Employer "0..1" *-- "*" Notification : notifies
+
+    JobSeeker "0..1" *-- "*" AiMatchingLog : logs
+
+    %% Many-to-many via association classes
+    JobSeeker "*" -- "*" Skill : JobSeekerSkill
+    Job "*" -- "*" Skill : JobSkill
+    JobSeeker "*" -- "*" Job : SavedJob
