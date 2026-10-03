@@ -1,0 +1,67 @@
+name: iOS build (unsigned IPA)
+
+# Builds an UNSIGNED .ipa on a hosted macOS runner. Downloadable as an
+# artifact at the bottom of each run. Install on an iPhone with a
+# re-signing tool (Sideloadly, AltStore, TrollStore) because an unsigned
+# .ipa cannot be installed via Xcode / TestFlight directly.
+#
+# When you later get a paid Apple Developer account:
+#   - add the signing certificate, provisioning profile and bundle id
+#     as repo Secrets
+#   - swap `--no-codesign` for `--release` + the signing flags here
+#   - optionally upload to TestFlight via `fastlane pilot upload`
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  ios:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Pre-cache iOS artifacts
+        run: flutter precache --ios
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Build iOS (unsigned, no codesign)
+        # `flutter build ipa --no-codesign` produces Runner.app + xcarchive
+        # under build/ios/archive without touching code signing. We then
+        # repackage it manually into a usable .ipa by zipping Payload/.
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned .ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Runner.app not found at $APP_PATH"; exit 1
+          fi
+          mkdir -p build/ios/ipa/Payload
+          cp -R "$APP_PATH" build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -qr "jobhub-prm393-unsigned.ipa" Payload
+          ls -la *.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobhub-prm393-unsigned-ipa
+          path: build/ios/ipa/jobhub-prm393-unsigned.ipa
+          retention-days: 14
