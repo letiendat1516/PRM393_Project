@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/routes.dart';
 import '../../core/utils/enums.dart';
-import '../../core/utils/nav.dart';
 import '../../features/auth/viewmodels/current_user_provider.dart';
 import '../models/user_model.dart';
 import 'nav_items.dart';
@@ -57,8 +56,15 @@ class MobileBottomBar extends ConsumerWidget {
       selectedIndex: activeIdx == -1 ? 0 : activeIdx,
       onDestinationSelected: (i) {
         final route = tabs[i].route;
+        // Bottom-nav tabs are top-level destinations, not drill-ins: go()
+        // replaces the stack so tapping a tab always lands on that tab's
+        // root — including when the user drilled into a sub-page like
+        // /viec-lam/<id> and then taps "Việc làm" expecting to pop back.
+        // The earlier `pushIfDifferent` guard silently returned on the
+        // current tab, which is what users reported as "nút không có tín
+        // hiệu" when they tried re-tapping Trang chủ.
         if (currentPath == route) return;
-        context.pushIfDifferent(route);
+        context.go(route);
       },
       destinations: [
         for (final t in tabs)

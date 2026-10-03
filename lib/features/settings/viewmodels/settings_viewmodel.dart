@@ -11,7 +11,12 @@ import '../../../core/utils/failure.dart';
 /// SharedPreferences, never in Firestore) + account/data actions.
 class SettingsState {
   const SettingsState({
-    this.themeMode = ThemeMode.system,
+    // Default to light: the web app is light-only, several widgets (BrandLogo
+    // PNGs, hard-coded AppColors.canvas/surface) are designed for a light
+    // surface and the dark theme is an opt-in mobile extra. Letting the OS
+    // pick dark by default made the JobHub logo invisible on iOS and flipped
+    // card colors so content became unreadable.
+    this.themeMode = ThemeMode.light,
     this.locale = 'vi',
     this.notificationsEnabled = true,
     this.notificationTypes = const {},
@@ -175,14 +180,18 @@ class SettingsViewModel extends StateNotifier<SettingsState> {
   static ThemeMode parseThemeMode(String? s) => switch (s) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
-        _ => ThemeMode.system,
+        'system' => ThemeMode.system,
+        // Unset / unknown → light (matches SettingsState default).
+        _ => ThemeMode.light,
       };
 
-  /// null = follow system (key removed from prefs).
+  /// null = unset (reader falls back to the default light theme). System must
+  /// round-trip as the literal 'system' so a user who explicitly chose "theo
+  /// hệ thống" in Settings keeps that preference across restarts.
   static String? themeModeToString(ThemeMode mode) => switch (mode) {
         ThemeMode.light => 'light',
         ThemeMode.dark => 'dark',
-        ThemeMode.system => null,
+        ThemeMode.system => 'system',
       };
 }
 
