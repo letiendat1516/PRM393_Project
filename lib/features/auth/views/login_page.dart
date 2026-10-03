@@ -62,7 +62,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _googleBusy = true);
     try {
       await ref.read(authServiceProvider).signInWithGoogle();
-      // authStateProvider will fire → GoRouter redirect handles navigation.
+      // Email/password path uses an explicit context.go() when the view-model
+      // reports success — do the same here. Relying only on the router's
+      // auth-state redirect races against currentUserProvider: for brand-new
+      // Google accounts the users/{uid} doc is written *after*
+      // signInWithCredential fires authStateChanges, so the first redirect
+      // cycle sees current.isLoading=true and no-ops; the second cycle
+      // depends on the Firestore snapshot stream arriving — users reported
+      // the login page just stuck. Firing go() ourselves guarantees the
+      // transition, and the router's role-based redirect still fires for
+      // admin → /admin/users once the role is known.
+      if (!mounted) return;
+      context.go(AppRoutes.home);
     } catch (e) {
       if (!mounted) return;
       final msg =
