@@ -84,6 +84,16 @@ class WebNavbar extends ConsumerWidget implements PreferredSizeWidget {
                   else
                     const Spacer(),
                   const SizedBox(width: 12),
+                  // Quick-jump to the jobs search page from anywhere —
+                  // visible for guest and signed-in users, on wide and
+                  // narrow viewports (fulfils "có thêm kính lúp để đi đâu
+                  // cũng có thể search được job"). Preserves whatever ?q
+                  // the user had before by just going to /viec-lam fresh.
+                  IconButton(
+                    tooltip: 'Tìm việc làm',
+                    onPressed: () => context.pushIfDifferent(AppRoutes.jobs),
+                    icon: const Icon(Icons.search, color: AppColors.inkSoft),
+                  ),
                   if (user == null)
                     _GuestActions(isWide: isWide)
                   else if (isWide)

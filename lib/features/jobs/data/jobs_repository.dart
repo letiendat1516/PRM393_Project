@@ -28,8 +28,10 @@ class JobsRepository {
   /// count comes from [countPublicJobs] regardless of what is loaded.
   static const int publicLimit = 10000;
 
-  /// Default lazy chunk the ViewModel asks for first: 3 pages of 10 jobs.
-  static const int defaultChunk = 30;
+  /// Default lazy chunk the ViewModel asks for first. Also the step size
+  /// infinite-scroll uses to grow [JobsSearchState.loadedLimit] when the
+  /// user reaches the end of the loaded window.
+  static const int defaultChunk = 20;
 
   /// Public employer job list limit (/employers/:id/jobs → limit 100).
   static const int employerLimit = 100;

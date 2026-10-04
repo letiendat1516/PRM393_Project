@@ -956,6 +956,29 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     _reconcileSubscription();
   }
 
+  /// Infinite-scroll handler: grow the Firestore subscription by one
+  /// [JobsRepository.defaultChunk] (20 docs) and let the stream fill the
+  /// gap. Guarded against:
+  ///  - concurrent calls while a chunk is still inflight ([isLoadingMore]),
+  ///  - reaching the catalog end (sourceJobs already ≥ totalCount),
+  ///  - the lazy cap so a pathological scroll can't ask for 100 000 docs,
+  /// which together keep the UI from spinning forever at the bottom.
+  void loadMore() {
+    if (!mounted) return;
+    if (state.isLoadingMore) return;
+    final loaded = state.sourceJobs.length;
+    final total = state.totalCount;
+    if (total != null && loaded >= total) return;
+    final current = state.loadedLimit;
+    final next = (current + JobsRepository.defaultChunk).clamp(
+      JobsRepository.defaultChunk,
+      _lazyLimitCap,
+    );
+    if (next == current) return;
+    state = state.copyWith(loadedLimit: next, isLoadingMore: true);
+    _resubscribe(_subscribedKeyword, next, _subscribedFilter);
+  }
+
   /// Desired Firestore stream limit for the current state.
   ///
   /// Always based on the current page + a 2-page prefetch buffer, rounded

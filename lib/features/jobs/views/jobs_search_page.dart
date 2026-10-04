@@ -9,14 +9,12 @@ import '../../../shared/widgets/job_list_item.dart';
 import '../../../shared/widgets/public_layout.dart';
 import '../../../shared/widgets/section.dart';
 import '../../../shared/widgets/ui_primitives.dart';
-import '../../../shared/widgets/web_footer.dart';
 import '../../applications/viewmodels/applications_providers.dart';
 import '../../applications/widgets/apply_modal.dart';
 import '../../recommendations/widgets/ai_matching_sheet.dart';
 import '../viewmodels/jobs_search_viewmodel.dart';
 import '../viewmodels/saved_jobs_provider.dart';
 import '../widgets/job_filter_sidebar.dart';
-import '../widgets/jobs_pagination.dart';
 import '../widgets/jobs_results_toolbar.dart';
 import '../widgets/jobs_search_header.dart';
 import '../widgets/save_job_helper.dart';
@@ -43,6 +41,19 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
   void initState() {
     super.initState();
     _scheduleSync();
+    _scroll.addListener(_onScroll);
+  }
+
+  /// Infinite-scroll trigger: when the viewport is within 600px of the end
+  /// of the loaded list, ask the viewmodel to pull the next 20 jobs. The
+  /// loadMore() guard already handles duplicate fire-while-loading, so a
+  /// single rude listener is enough — no debounce needed.
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final pos = _scroll.position;
+    if (pos.extentAfter < 600) {
+      _vm.loadMore();
+    }
   }
 
   @override
@@ -73,6 +84,7 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _keyword.dispose();
     super.dispose();
@@ -111,17 +123,6 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
     final scores = await showAiMatchingSheet(context, jobs: jobs);
     if (!mounted) return;
     if (scores != null) _vm.applyScores(scores);
-  }
-
-  void _goPage(int p) {
-    _vm.setPage(p);
-    if (_scroll.hasClients) {
-      _scroll.animateTo(
-        0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
   }
 
   @override
@@ -199,10 +200,10 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
           ),
           const SizedBox(height: 16),
         ],
-        if (state.pageJobs.isEmpty)
+        if (state.filtered.isEmpty && !state.loading)
           _EmptyResults(onReset: _reset)
         else
-          for (final job in state.pageJobs) ...[
+          for (final job in state.filtered) ...[
             JobListItem(
               key: ValueKey(job.jobId),
               job: job,
@@ -214,14 +215,36 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
             ),
             const SizedBox(height: 12),
           ],
-        if (state.totalPages > 1) ...[
-          const SizedBox(height: 12),
-          JobsPagination(
-            page: state.currentPage,
-            totalPages: state.totalPages,
-            onChanged: _goPage,
+        // Infinite-scroll feedback: loading dots while fetching the next
+        // 20 docs; a quiet "Đã tải hết việc làm" footer once the loaded
+        // window matches the server count. Keeps the user from pulling at
+        // a dead stream expecting more.
+        if (state.isLoadingMore)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+            ),
+          )
+        else if (state.filtered.isNotEmpty &&
+            state.totalCount != null &&
+            state.sourceJobs.length >= state.totalCount!)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: Text(
+                'Đã tải hết việc làm',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.inkMuted,
+                ),
+              ),
+            ),
           ),
-        ],
       ],
     );
 
@@ -233,7 +256,6 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
         header: header,
         sidebar: sidebar,
         body: results,
-        footer: const WebFooter(),
         sidebarWidth: 288,
         stickyTop: 24,
       ),
