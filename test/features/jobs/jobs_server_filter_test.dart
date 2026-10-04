@@ -78,11 +78,12 @@ String braceBody(String src, String header) {
 }
 
 /// Mirror 1-1 của `JobsSearchViewModel._serverFilter()`
-/// (lib/features/jobs/viewmodels/jobs_search_viewmodel.dart): flatten toàn bộ
-/// filter state, hoist CHỈ khi đúng 1 (key, value) và key ∈ {cities,
-/// workMode, jobType, categories}. categoryName được thêm trong fix search
-/// (49 category trong catalogue, mỗi category ~200 jobs — hoist để
-/// server-side count accurate thay vì chỉ matching trên 30-doc loaded window).
+/// (lib/features/jobs/viewmodels/jobs_search_viewmodel.dart). Sau fix
+/// multi-facet V17: hoist MỌI facet trong {cities, workMode, jobType,
+/// categories} có đúng 1 giá trị, bỏ qua các sentinel 'Chưa cập nhật' /
+/// 'Ngành nghề khác'. Bất kỳ facet không-hoist nào (salary / experience,
+/// hoặc multi-value trên 1 facet) → về nulls để toàn bộ scope chuyển
+/// client-side.
 ({String? city, WorkMode? workMode, JobType? jobType, String? categoryName})
 mirrorServerFilter(JobsFilters filters) {
   const nulls = (
@@ -91,43 +92,41 @@ mirrorServerFilter(JobsFilters filters) {
     jobType: null,
     categoryName: null,
   );
-  final flat = filters.flatten();
-  if (flat.length != 1) return nulls;
-  final (key, value) = flat.single;
-  return switch (key) {
-    // 'Chưa cập nhật' là fallback display (locationOf) cho job thiếu cả
-    // location lẫn city — không doc nào có city == chuỗi đó trên Firestore.
-    JobFilterKey.cities when value == 'Chưa cập nhật' => nulls,
-    JobFilterKey.cities => (
-      city: value,
-      workMode: null,
-      jobType: null,
-      categoryName: null,
-    ),
-    JobFilterKey.workMode => (
-      city: null,
-      workMode: parseWorkMode(value),
-      jobType: null,
-      categoryName: null,
-    ),
-    JobFilterKey.jobType => (
-      city: null,
-      workMode: null,
-      jobType: parseJobType(value),
-      categoryName: null,
-    ),
-    // 'Ngành nghề khác' là bucket categoryOf() cho job thiếu categoryName —
-    // y hệt 'Chưa cập nhật' với city, không doc nào có categoryName == chuỗi
-    // đó nên không hoist.
-    JobFilterKey.categories when value == 'Ngành nghề khác' => nulls,
-    JobFilterKey.categories => (
-      city: null,
-      workMode: null,
-      jobType: null,
-      categoryName: value,
-    ),
-    _ => nulls,
-  };
+  // Non-hoistable facet active ⇒ toàn bộ scope rơi về client-side
+  // (tránh totalCount hiển thị số sai so với kết quả client-filter).
+  if (filters.salary.isNotEmpty) return nulls;
+  if (filters.experience.isNotEmpty) return nulls;
+  // Multi-value trên 1 facet (vd 2 city) → không hoist cả bộ.
+  if (filters.cities.length > 1) return nulls;
+  if (filters.categories.length > 1) return nulls;
+  if (filters.workMode.length > 1) return nulls;
+  if (filters.jobType.length > 1) return nulls;
+  // Sentinel bucket chip ⇒ Firestore không có value tương ứng.
+  if (filters.cities.length == 1 && filters.cities.first == 'Chưa cập nhật') {
+    return nulls;
+  }
+  if (filters.categories.length == 1 &&
+      filters.categories.first == 'Ngành nghề khác') {
+    return nulls;
+  }
+  // Phải có ÍT NHẤT một chip hoistable (else no-filter case).
+  if (filters.cities.isEmpty &&
+      filters.categories.isEmpty &&
+      filters.workMode.isEmpty &&
+      filters.jobType.isEmpty) {
+    return nulls;
+  }
+  return (
+    city: filters.cities.isNotEmpty ? filters.cities.first : null,
+    workMode: filters.workMode.isNotEmpty
+        ? parseWorkMode(filters.workMode.first)
+        : null,
+    jobType: filters.jobType.isNotEmpty
+        ? parseJobType(filters.jobType.first)
+        : null,
+    categoryName:
+        filters.categories.isNotEmpty ? filters.categories.first : null,
+  );
 }
 
 const _nulls = (
@@ -216,30 +215,96 @@ void main() {
       );
     });
 
-    test('city + workMode → KHÔNG hoist (multi-facet)', () {
+    test('city + workMode → HOIST CẢ 2 (fix V17 multi-facet)', () {
+      // Trước đây 2 facet rơi về client-side → "IT + Hà Nội → 1 job" vì
+      // intersection chỉ chạy trên 20-doc loaded window. Sau V17 chain cả
+      // 2 trên Firestore nhờ composite index (city, workMode, createdAt).
       expect(
         mirrorServerFilter(
           const JobsFilters(cities: {'Hà Nội'}, workMode: {'REMOTE'}),
         ),
-        _nulls,
-        reason: 'composite index chỉ cover 1 facet — 2 facet phải client-side',
+        (
+          city: 'Hà Nội',
+          workMode: WorkMode.remote,
+          jobType: null,
+          categoryName: null,
+        ),
       );
     });
 
-    test('city + mỗi facet khác → KHÔNG hoist (2 facet composite)', () {
+    test('city + category → HOIST CẢ 2 (fix "IT + Hà Nội → 1 job")', () {
+      expect(
+        mirrorServerFilter(
+          const JobsFilters(
+            cities: {'Hà Nội'},
+            categories: {'IT - Công nghệ thông tin'},
+          ),
+        ),
+        (
+          city: 'Hà Nội',
+          workMode: null,
+          jobType: null,
+          categoryName: 'IT - Công nghệ thông tin',
+        ),
+      );
+    });
+
+    test(
+      'cả 4 facet hoistable cùng lúc → hoist hết (có composite index 4-facet)',
+      () {
+        expect(
+          mirrorServerFilter(
+            const JobsFilters(
+              cities: {'Hà Nội'},
+              categories: {'Backend Developer'},
+              workMode: {'REMOTE'},
+              jobType: {'FULL_TIME'},
+            ),
+          ),
+          (
+            city: 'Hà Nội',
+            workMode: WorkMode.remote,
+            jobType: JobType.fullTime,
+            categoryName: 'Backend Developer',
+          ),
+        );
+      },
+    );
+
+    test('city + salary/experience → client-side scope (facet không hoist)',
+        () {
       for (final f in const [
         JobsFilters(cities: {'Hà Nội'}, salary: {'negotiable'}),
-        JobsFilters(cities: {'Hà Nội'}, categories: {'Backend Developer'}),
         JobsFilters(cities: {'Hà Nội'}, experience: {'SENIOR'}),
-        JobsFilters(cities: {'Hà Nội'}, jobLevel: {'Nhân viên'}),
       ]) {
         expect(
           mirrorServerFilter(f),
           _nulls,
-          reason: 'chỉ 1 chip duy nhất mới được hoist — ${f.flatten()}',
+          reason:
+              'salary/experience chưa có composite index tương ứng — toàn '
+              'bộ scope rơi về client để totalCount và filtered.length '
+              'khớp nhau: ${f.flatten()}',
         );
       }
     });
+
+    test(
+      'city + jobLevel → VẪN hoist city (jobLevel là display-only, '
+      '_computeFiltered bỏ qua nên không ảnh hưởng totalCount)',
+      () {
+        expect(
+          mirrorServerFilter(
+            const JobsFilters(cities: {'Hà Nội'}, jobLevel: {'Nhân viên'}),
+          ),
+          (
+            city: 'Hà Nội',
+            workMode: null,
+            jobType: null,
+            categoryName: null,
+          ),
+        );
+      },
+    );
 
     test('đúng 1 chip nhưng thuộc facet không hoist được → nulls', () {
       expect(
@@ -380,23 +445,21 @@ void main() {
       },
     );
 
-    test('_applyFacetFilter: assert chặn caller truyền >1 facet (debug)', () {
-      final body = memberBody(repoSrc, 'Query<JobModel> _applyFacetFilter(');
-      expect(
-        has(
-          body,
-          '(city != null ? 1 : 0) + (workMode != null ? 1 : 0) + '
-          '(jobType != null ? 1 : 0) + (categoryName != null ? 1 : 0) <= 1',
-        ),
-        isTrue,
-        reason: 'assert ≤1 facet — caller sai phải bị bắn ngay ở debug build',
-      );
-      expect(
-        pos(body, 'assert(') < pos(body, 'if (city != null)'),
-        isTrue,
-        reason: 'assert đứng trước if-chain',
-      );
-    });
+    test(
+      '_applyFacetFilter: KHÔNG còn assert ≤1 (V17 bỏ để multi-facet chain)',
+      () {
+        final body = memberBody(repoSrc, 'Query<JobModel> _applyFacetFilter(');
+        // Nếu assert ≤1 còn lại ⇒ composite query multi-facet sẽ nổ
+        // ở debug mode. Fix "IT + Hà Nội → 1 job" phải xóa assert này.
+        expect(
+          has(body, 'assert('),
+          isFalse,
+          reason:
+              'V17 chain cả 4 facet; composite index support subset — assert '
+              '≤1 không còn hợp lệ',
+        );
+      },
+    );
 
     test('watchPublicJobs: guard unmatchable chạy TRƯỚC facet chain', () {
       final body = memberBody(
@@ -428,44 +491,56 @@ void main() {
     });
   });
 
-  group('contract source — viewmodel V16 (hoist 1 facet)', () {
+  group('contract source — viewmodel V17 (hoist N facets)', () {
     test('typedef JobsServerFilter + sentinel _noServerFilter', () {
       expect(has(vmSrc, 'typedef JobsServerFilter'), isTrue);
       expect(has(vmSrc, 'static const JobsServerFilter _noServerFilter'), isTrue);
     });
 
-    test('_serverFilter: gate flatten đúng 1 entry + 4 nhánh hoist', () {
-      final body = braceBody(vmSrc, 'JobsServerFilter _serverFilter() {');
-      expect(body, isNotEmpty, reason: 'trích được _serverFilter');
-      expect(has(body, 'final flat = state.filters.flatten();'), isTrue,
-          reason: 'phải flatten TOÀN BỘ filter state — nếu chỉ đếm từng set '
-              'riêng thì city+salary vẫn hoist được là sai spec');
-      expect(has(body, 'if (flat.length != 1) return _noServerFilter;'), isTrue,
-          reason: 'đúng 1 chip DUY NHẤT trên 7 loại filter mới được hoist');
-      // Record field order không được format pin — chỉ cần field + value có mặt.
-      expect(has(body, 'JobFilterKey.cities =>'), isTrue,
-          reason: 'nhánh cities phải hoist city param');
-      expect(has(body, 'city: value'), isTrue);
-      expect(has(body, 'workMode: parseWorkMode(value)'), isTrue,
-          reason: 'wire string → enum qua parseWorkMode trước khi xuống repo');
-      expect(has(body, 'jobType: parseJobType(value)'), isTrue);
-      expect(has(body, 'JobFilterKey.categories =>'), isTrue,
-          reason: 'nhánh categories hoist categoryName (fix "chỉ 2 IT")');
-      expect(has(body, 'categoryName: value'), isTrue);
+    test(
+      '_serverFilter: hoist mọi facet khi scope server-covered (V17)',
+      () {
+        final body = braceBody(vmSrc, 'JobsServerFilter _serverFilter() {');
+        expect(body, isNotEmpty, reason: 'trích được _serverFilter');
+        // Gate "exactly 1 chip" cũ bị bỏ — scope-wide check thay thế.
+        expect(
+          has(body, 'if (flat.length != 1) return _noServerFilter;'),
+          isFalse,
+          reason: 'V17 bỏ gate ≤1, chain mọi facet qua isServerSideFacet',
+        );
+        expect(
+          has(body, 'if (!state.isServerSideFacet) return _noServerFilter;'),
+          isTrue,
+          reason: 'guard scope-level dùng isServerSideFacet getter',
+        );
+        // Mỗi facet hoistable phải lấy value từ set tương ứng.
+        expect(has(body, 'f.cities.isNotEmpty ? f.cities.first : null'), isTrue,
+            reason: 'city lấy từ filters.cities');
+        expect(has(body, 'parseWorkMode(f.workMode.first)'), isTrue,
+            reason: 'workMode wire → enum qua parseWorkMode');
+        expect(has(body, 'parseJobType(f.jobType.first)'), isTrue);
+        expect(
+          has(body, 'f.categories.isNotEmpty ? f.categories.first : null'),
+          isTrue,
+          reason: 'categoryName lấy từ filters.categories',
+        );
+      },
+    );
+
+    test('isServerSideFacet: sentinel bucket vẫn phải fallback client-side', () {
+      // Sentinel check đã dời lên isServerSideFacet getter (được guard bởi
+      // _serverFilter) — không còn literal `when value == 'Chưa cập nhật'`
+      // trong switch cũ nữa. Phải pin ở layer mới.
+      final body = braceBody(vmSrc, 'bool get isServerSideFacet {');
+      expect(body, isNotEmpty, reason: 'trích được isServerSideFacet');
       expect(
-        has(
-          body,
-          "JobFilterKey.cities when value == 'Chưa cập nhật' => _noServerFilter",
-        ),
+        has(body, "filters.cities.first == 'Chưa cập nhật'"),
         isTrue,
-        reason: 'sentinel display không có doc tương ứng trên Firestore — '
-            'phải giữ client-side',
+        reason: "sentinel display không có doc tương ứng trên Firestore — "
+            'isServerSideFacet phải false để scope rơi về client',
       );
       expect(
-        has(
-          body,
-          "JobFilterKey.categories when value == 'Ngành nghề khác' => _noServerFilter",
-        ),
+        has(body, "filters.categories.first == 'Ngành nghề khác'"),
         isTrue,
         reason: "bucket 'Ngành nghề khác' là categoryOf fallback — không có "
             'doc nào có categoryName == bucket name',

@@ -322,27 +322,44 @@ class JobsSearchState {
   /// Chips row + 'Xoá tất cả' visibility (hasActiveFilters()).
   bool get hasActiveFilters => filters.isNotEmpty;
 
-  /// True when the active filter is exactly ONE chip from
-  /// {cities, workMode, jobType, categories} — in which case
-  /// [JobsRepository] already scopes the stream *and* the aggregation count
-  /// server-side, so [totalCount] reflects the full matching subset
-  /// (e.g. 200 Backend Developer jobs, 2744 Hà Nội jobs) instead of only the
-  /// loaded 30-doc window.
+  /// True when the entire active chip set is covered by Firestore
+  /// equality `.where()` clauses — any subset of {cities, workMode,
+  /// jobType, categories}, each with exactly ONE value, excluding the
+  /// synthetic 'Chưa cập nhật' / 'Ngành nghề khác' sentinels (which are
+  /// UI labels, not Firestore field values). Composite indexes for
+  /// every subset (6 pair, 4 triple, 1 quad) live in
+  /// firestore.indexes.json. In this case [totalCount] already reflects
+  /// the full matching subset so the UI must NOT fall back to
+  /// filtered.length. Fixes "IT + Hà Nội → 1 job": previously multi-chip
+  /// scope was marked client-side and the intersection ran only over the
+  /// 20-doc loaded window.
   bool get isServerSideFacet {
-    final chips = filters.flatten();
-    if (chips.length != 1) return false;
-    final (key, value) = chips.first;
-    // Match the fallback sentinels in [JobsSearchViewModel._serverFilter]: the
-    // 'Chưa cập nhật' / 'Ngành nghề khác' buckets are UI synthetic labels, not
-    // Firestore field values, so chip ∧ facet don't actually agree server-side.
-    if (key == JobFilterKey.cities && value == 'Chưa cập nhật') return false;
-    if (key == JobFilterKey.categories && value == 'Ngành nghề khác') {
+    // Any non-hoistable facet active ⇒ client-side scope.
+    if (filters.salary.isNotEmpty) return false;
+    if (filters.experience.isNotEmpty) return false;
+    // jobLevel is display-only (_computeFiltered skips it) so treat as
+    // not blocking — see _isClientSideScope / _hasEffectiveFilters.
+    if (locationQuery.trim().isNotEmpty) return false;
+    // Multi-value on a hoistable facet (2 cities etc.) ⇒ we can't push a
+    // single equality to Firestore; fall back to client-side.
+    if (filters.cities.length > 1) return false;
+    if (filters.categories.length > 1) return false;
+    if (filters.workMode.length > 1) return false;
+    if (filters.jobType.length > 1) return false;
+    // Sentinel bucket chip ⇒ can't push the value to Firestore.
+    if (filters.cities.length == 1 && filters.cities.first == 'Chưa cập nhật') {
       return false;
     }
-    return key == JobFilterKey.cities ||
-        key == JobFilterKey.workMode ||
-        key == JobFilterKey.jobType ||
-        key == JobFilterKey.categories;
+    if (filters.categories.length == 1 &&
+        filters.categories.first == 'Ngành nghề khác') {
+      return false;
+    }
+    // Must have at least ONE hoistable chip to count as a server-side
+    // facet (else there's nothing to hoist — it's the "no filter" case).
+    return filters.cities.isNotEmpty ||
+        filters.categories.isNotEmpty ||
+        filters.workMode.isNotEmpty ||
+        filters.jobType.isNotEmpty;
   }
 
   /// Pure client-side scope ⇒ visible slice of the loaded window
@@ -648,46 +665,27 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
   /// 30-doc loaded window, so users saw "2 việc làm" when the server has
   /// hundreds.
   JobsServerFilter _serverFilter() {
-    final flat = state.filters.flatten();
-    if (flat.length != 1) return _noServerFilter;
-    final (key, value) = flat.single;
-    return switch (key) {
-      // 'Chưa cập nhật' is JobsSearchState.locationOf's fallback for jobs
-      // with neither location nor city — no Firestore `city` document holds
-      // that literal, so hoisting it would return 0 server hits for a chip
-      // the sidebar may advertise with a count. Keep it client-side.
-      JobFilterKey.cities when value == 'Chưa cập nhật' => _noServerFilter,
-      JobFilterKey.cities => (
-        city: value,
-        workMode: null,
-        jobType: null,
-        categoryName: null,
-      ),
-      JobFilterKey.workMode => (
-        city: null,
-        workMode: parseWorkMode(value),
-        jobType: null,
-        categoryName: null,
-      ),
-      JobFilterKey.jobType => (
-        city: null,
-        workMode: null,
-        jobType: parseJobType(value),
-        categoryName: null,
-      ),
-      // Same fallback story as cities — the chip "Ngành nghề khác" is
-      // JobsSearchState.categoryOf's bucket for jobs without a categoryName,
-      // which never appears as a Firestore value, so keep that one client-
-      // side and let every real category hoist cleanly.
-      JobFilterKey.categories when value == 'Ngành nghề khác' => _noServerFilter,
-      JobFilterKey.categories => (
-        city: null,
-        workMode: null,
-        jobType: null,
-        categoryName: value,
-      ),
-      _ => _noServerFilter,
-    };
+    // If any non-hoistable constraint is active (free-text location,
+    // multi-select on a facet, salary / experience chip, synthetic
+    // bucket) the whole scope falls back to client-side so totalCount
+    // doesn't advertise a misleading figure. [isServerSideFacet] mirrors
+    // this exact logic.
+    if (!state.isServerSideFacet) return _noServerFilter;
+    final f = state.filters;
+    // Each facet is guaranteed to have at most 1 value and no sentinel
+    // by the isServerSideFacet guard above.
+    final city = f.cities.isNotEmpty ? f.cities.first : null;
+    final categoryName = f.categories.isNotEmpty ? f.categories.first : null;
+    final workMode =
+        f.workMode.isNotEmpty ? parseWorkMode(f.workMode.first) : null;
+    final jobType =
+        f.jobType.isNotEmpty ? parseJobType(f.jobType.first) : null;
+    return (
+      city: city,
+      workMode: workMode,
+      jobType: jobType,
+      categoryName: categoryName,
+    );
   }
 
   /// Re-opens the Firestore stream when the search keyword, the loaded

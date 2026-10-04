@@ -86,12 +86,12 @@ class JobsRepository {
     );
   }
 
-  /// Chains ONE equality facet onto [query], priority `city > workMode >
-  /// jobType > categoryName`. Composite indexes only exist for a single facet
-  /// on top of the base `(isApproved, status)` (+ optional titleTokens) query
-  /// — passing two facets at once would fail with FAILED_PRECONDITION, so the
-  /// [assert] flags buggy callers in debug builds and the extra facets simply
-  /// drop (the client-side pass still applies them on the loaded window).
+  /// Chains EVERY provided equality facet onto [query] in order
+  /// `city > workMode > jobType > categoryName`. Any subset of the four
+  /// may be combined — the matching composite index must exist in
+  /// firestore.indexes.json; the "IT + Hà Nội → 1 job" bug was caused by
+  /// the previous ≤1-facet gate forcing the second chip to be applied
+  /// client-side against the 20-doc loaded window.
   Query<JobModel> _applyFacetFilter(
     Query<JobModel> query, {
     String? city,
@@ -99,25 +99,15 @@ class JobsRepository {
     JobType? jobType,
     String? categoryName,
   }) {
-    assert(
-      (city != null ? 1 : 0) +
-              (workMode != null ? 1 : 0) +
-              (jobType != null ? 1 : 0) +
-              (categoryName != null ? 1 : 0) <=
-          1,
-      'watchPublicJobs/countPublicJobs support at most ONE server-side facet '
-      '(priority city > workMode > jobType > categoryName); keep the rest '
-      'client-side.',
-    );
-    if (city != null) return query.where('city', isEqualTo: city);
+    if (city != null) query = query.where('city', isEqualTo: city);
     if (workMode != null) {
-      return query.where('workMode', isEqualTo: enumToWire(workMode));
+      query = query.where('workMode', isEqualTo: enumToWire(workMode));
     }
     if (jobType != null) {
-      return query.where('jobType', isEqualTo: enumToWire(jobType));
+      query = query.where('jobType', isEqualTo: enumToWire(jobType));
     }
     if (categoryName != null) {
-      return query.where('categoryName', isEqualTo: categoryName);
+      query = query.where('categoryName', isEqualTo: categoryName);
     }
     return query;
   }
