@@ -43,76 +43,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final user = ref.watch(currentUserProvider);
     final isWide = MediaQuery.sizeOf(context).width >= 1024;
 
-    final appearance = SettingsSection(
-      icon: Icons.palette_outlined,
-      title: 'Giao diện',
-      subtitle: 'Chế độ hiển thị của ứng dụng.',
-      children: [
-        RadioGroup<ThemeMode>(
-          groupValue: s.themeMode,
-          onChanged: (v) {
-            if (v != null) vm.setThemeMode(v);
-          },
-          child: const Column(
-            children: [
-              RadioListTile<ThemeMode>(
-                value: ThemeMode.system,
-                title: Text('Theo hệ thống'),
-                secondary: Icon(Icons.brightness_auto_outlined),
-                contentPadding: EdgeInsets.zero,
-              ),
-              RadioListTile<ThemeMode>(
-                value: ThemeMode.light,
-                title: Text('Sáng'),
-                secondary: Icon(Icons.light_mode_outlined),
-                contentPadding: EdgeInsets.zero,
-              ),
-              RadioListTile<ThemeMode>(
-                value: ThemeMode.dark,
-                title: Text('Tối'),
-                secondary: Icon(Icons.dark_mode_outlined),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-
-    final language = SettingsSection(
-      icon: Icons.translate_outlined,
-      title: 'Ngôn ngữ',
-      subtitle: 'Ngôn ngữ hiển thị.',
-      children: [
-        RadioGroup<String>(
-          groupValue: s.locale,
-          onChanged: (v) {
-            if (v != null) vm.setLocale(v);
-          },
-          child: const Column(
-            children: [
-              RadioListTile<String>(
-                value: 'vi',
-                title: Text('Tiếng Việt'),
-                contentPadding: EdgeInsets.zero,
-              ),
-              RadioListTile<String>(
-                value: 'en',
-                title: Text('English'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ],
-          ),
-        ),
-        // Honest caption: there is no l10n layer yet — app copy is Vietnamese
-        // only; the toggle drives the Material locale (date pickers, dialog
-        // buttons, tooltips, number/date formats).
-        const SettingsHint(
-          'Nội dung ứng dụng hiện chỉ hiển thị bằng tiếng Việt. Lựa chọn này áp dụng cho các '
-          'thành phần hệ thống (lịch, hộp thoại, định dạng ngày và số).',
-        ),
-      ],
-    );
+    // Theme + language pickers removed by user request: the app is pinned to
+    // light mode (dark theme wiring was never finished — flipping the switch
+    // broke the UI) and copy is Vietnamese only. Both toggles stay out of
+    // the settings UI; the underlying viewmodel keeps the state fields so
+    // SharedPreferences migrations don't break.
 
     final notifications = SettingsSection(
       icon: Icons.notifications_none,
@@ -308,9 +243,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               Expanded(
                 child: Column(
                   children: [
-                    appearance,
-                    sep(),
-                    language,
+                    account,
                     sep(),
                     about,
                   ],
@@ -320,8 +253,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               Expanded(
                 child: Column(
                   children: [
-                    account,
-                    sep(),
                     notifications,
                     sep(),
                     data,
@@ -332,10 +263,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           )
         : Column(
             children: [
-              appearance,
-              sep(),
-              language,
-              sep(),
               notifications,
               sep(),
               account,

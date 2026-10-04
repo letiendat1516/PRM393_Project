@@ -10,7 +10,6 @@ import 'core/theme/app_theme.dart';
 import 'core/utils/enums.dart';
 import 'features/auth/viewmodels/current_user_provider.dart';
 import 'features/notifications/widgets/notification_navigator.dart';
-import 'features/settings/viewmodels/settings_viewmodel.dart';
 
 final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
@@ -20,7 +19,6 @@ class JobHubApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
-    final settings = ref.watch(settingsProvider);
 
     // Account blocking semantics (authMiddleware.requireActivePrincipal):
     // when users/{uid}.isActive flips to false, sign out immediately.
@@ -73,10 +71,15 @@ class JobHubApp extends ConsumerWidget {
       title: 'JobHub',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
-      themeMode: settings.themeMode,
+      // Theme + locale pickers were removed from the Settings UI
+      // (only VN copy exists; dark theme was never finished and the
+      // Settings → Giao diện → Tối toggle introduced the dark-mode
+      // breakage reported earlier). Pin the app to light / vi so no
+      // stale pref value from an old build can flip the whole app
+      // into an unsupported mode.
+      themeMode: ThemeMode.light,
       theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      locale: Locale(settings.locale),
+      locale: const Locale('vi'),
       supportedLocales: [for (final l in AppConfig.supportedLocales) Locale(l)],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
