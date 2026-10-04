@@ -36,9 +36,17 @@ class WebNavbar extends ConsumerWidget implements PreferredSizeWidget {
 
     return Material(
       color: Colors.transparent,
+      // Scaffold allocates (preferredSize.height + MediaQuery.padding.top)
+      // for the AppBar slot — on iPhones that's 72 + ~59 = 131px. The nav
+      // decoration needs to cover the entire slot (including the status-bar
+      // strip) so the surface colour reaches up under the notch, so the
+      // AnimatedContainer sits OUTSIDE SafeArea. SafeArea then pushes the
+      // actual Row (logo + links + icons) down by the status-bar inset,
+      // leaving a full 72px for content. The old layout put SafeArea inside
+      // the fixed-72px container, which squashed the content strip to ~13px
+      // on iPhone and clipped the logo out of view.
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: kNavbarHeight,
         decoration: BoxDecoration(
           color: AppColors.surface.withValues(alpha: scrolled ? 0.97 : 0.92),
           border: const Border(bottom: BorderSide(color: AppColors.border)),
@@ -46,46 +54,52 @@ class WebNavbar extends ConsumerWidget implements PreferredSizeWidget {
         ),
         child: SafeArea(
           bottom: false,
-          child: PageContainer(
-            padding: EdgeInsets.symmetric(horizontal: isWide ? 32 : 16),
-            child: Row(
-              children: [
-                InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: () => context.go(AppRoutes.home),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: BrandLogo(),
+          child: SizedBox(
+            height: kNavbarHeight,
+            child: PageContainer(
+              padding: EdgeInsets.symmetric(horizontal: isWide ? 32 : 16),
+              child: Row(
+                children: [
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => context.go(AppRoutes.home),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: BrandLogo(),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 20),
-                if (isWide)
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [for (final it in NavItems.public) _NavLink(item: it)],
+                  const SizedBox(width: 20),
+                  if (isWide)
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final it in NavItems.public)
+                              _NavLink(item: it),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    const Spacer(),
+                  const SizedBox(width: 12),
+                  if (user == null)
+                    _GuestActions(isWide: isWide)
+                  else if (isWide)
+                    _AccountMenu(user: user, isWide: isWide)
+                  else
+                    const _NotificationBell(),
+                  if (!isWide)
+                    Builder(
+                      builder: (ctx) => IconButton(
+                        tooltip: 'Menu',
+                        icon: const Icon(Icons.menu, color: AppColors.ink),
+                        onPressed: () => Scaffold.of(ctx).openDrawer(),
                       ),
                     ),
-                  )
-                else
-                  const Spacer(),
-                const SizedBox(width: 12),
-                if (user == null)
-                  _GuestActions(isWide: isWide)
-                else if (isWide)
-                  _AccountMenu(user: user, isWide: isWide)
-                else
-                  const _NotificationBell(),
-                if (!isWide)
-                  Builder(
-                    builder: (ctx) => IconButton(
-                      tooltip: 'Menu',
-                      icon: const Icon(Icons.menu, color: AppColors.ink),
-                      onPressed: () => Scaffold.of(ctx).openDrawer(),
-                    ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -104,31 +118,40 @@ class _GuestActions extends StatelessWidget {
       return ElevatedButton(
         onPressed: () => context.pushIfDifferent(AppRoutes.login),
         style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10), minimumSize: const Size(0, 40)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          minimumSize: const Size(0, 40),
+        ),
         child: const Text('Đăng nhập'),
       );
     }
     // Navbar.jsx order: 'Đăng nhập' (secondary) · 'Đăng ký' (primary) · 'Dành cho NTD' (ghost).
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      OutlinedButton(
-        onPressed: () => context.pushIfDifferent(AppRoutes.login),
-        style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12), minimumSize: const Size(0, 44)),
-        child: const Text('Đăng nhập'),
-      ),
-      const SizedBox(width: 8),
-      ElevatedButton(
-        onPressed: () => context.pushIfDifferent(AppRoutes.register),
-        style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12), minimumSize: const Size(0, 44)),
-        child: const Text('Đăng ký'),
-      ),
-      const SizedBox(width: 4),
-      TextButton(
-        onPressed: () => context.pushIfDifferent(AppRoutes.registerEmployer),
-        child: const Text('Dành cho NTD'),
-      ),
-    ]);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        OutlinedButton(
+          onPressed: () => context.pushIfDifferent(AppRoutes.login),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            minimumSize: const Size(0, 44),
+          ),
+          child: const Text('Đăng nhập'),
+        ),
+        const SizedBox(width: 8),
+        ElevatedButton(
+          onPressed: () => context.pushIfDifferent(AppRoutes.register),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            minimumSize: const Size(0, 44),
+          ),
+          child: const Text('Đăng ký'),
+        ),
+        const SizedBox(width: 4),
+        TextButton(
+          onPressed: () => context.pushIfDifferent(AppRoutes.registerEmployer),
+          child: const Text('Dành cho NTD'),
+        ),
+      ],
+    );
   }
 }
 
@@ -140,10 +163,15 @@ class _NavLink extends StatelessWidget {
   Widget build(BuildContext context) {
     // Not GoRouterState.of(): go_router does not register the errorBuilder
     // page (404) in its state registry, so that would throw inside NotFoundPage.
-    final current = GoRouter.maybeOf(context)?.routerDelegate.currentConfiguration.uri ?? Uri(path: '/');
+    final current =
+        GoRouter.maybeOf(context)?.routerDelegate.currentConfiguration.uri ??
+        Uri(path: '/');
     final uri = Uri.parse(item.route);
-    final active = uri.path == current.path &&
-        (uri.query.isEmpty || uri.queryParameters['section'] == current.queryParameters['section']) &&
+    final active =
+        uri.path == current.path &&
+        (uri.query.isEmpty ||
+            uri.queryParameters['section'] ==
+                current.queryParameters['section']) &&
         !(uri.path == '/' && uri.query.isEmpty && current.query.isNotEmpty);
 
     return Padding(
@@ -154,8 +182,13 @@ class _NavLink extends StatelessWidget {
           foregroundColor: active ? AppColors.primary : AppColors.inkSoft,
           backgroundColor: active ? AppColors.primary50 : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          textStyle: TextStyle(fontSize: 14, fontWeight: active ? FontWeight.w700 : FontWeight.w500),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          textStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+          ),
         ),
         child: Text(item.label),
       ),
@@ -202,7 +235,10 @@ class _AccountMenu extends ConsumerWidget {
           icon: Badge(
             isLabelVisible: unread > 0,
             label: Text(unread > 99 ? '99+' : '$unread'),
-            child: const Icon(Icons.notifications_none, color: AppColors.inkSoft),
+            child: const Icon(
+              Icons.notifications_none,
+              color: AppColors.inkSoft,
+            ),
           ),
         ),
         const SizedBox(width: 4),
@@ -229,9 +265,20 @@ class _AccountMenu extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(user.fullName,
-                      style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.ink)),
-                  Text(user.email, style: const TextStyle(fontSize: 12, color: AppColors.inkMuted)),
+                  Text(
+                    user.fullName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  Text(
+                    user.email,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.inkMuted,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -239,20 +286,28 @@ class _AccountMenu extends ConsumerWidget {
             for (final it in items)
               PopupMenuItem(
                 value: it.route,
-                child: Row(children: [
-                  Icon(it.icon ?? Icons.circle_outlined, size: 18, color: AppColors.inkSoft),
-                  const SizedBox(width: 12),
-                  Text(it.label),
-                ]),
+                child: Row(
+                  children: [
+                    Icon(
+                      it.icon ?? Icons.circle_outlined,
+                      size: 18,
+                      color: AppColors.inkSoft,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(it.label),
+                  ],
+                ),
               ),
             const PopupMenuDivider(),
             const PopupMenuItem(
               value: '__logout',
-              child: Row(children: [
-                Icon(Icons.logout, size: 18, color: AppColors.danger),
-                SizedBox(width: 12),
-                Text('Đăng xuất', style: TextStyle(color: AppColors.danger)),
-              ]),
+              child: Row(
+                children: [
+                  Icon(Icons.logout, size: 18, color: AppColors.danger),
+                  SizedBox(width: 12),
+                  Text('Đăng xuất', style: TextStyle(color: AppColors.danger)),
+                ],
+              ),
             ),
           ],
           child: Container(
@@ -268,32 +323,59 @@ class _AccountMenu extends ConsumerWidget {
                 CircleAvatar(
                   radius: 14,
                   backgroundColor: AppColors.primary,
-                  backgroundImage: user.photoUrl != null ? NetworkImage(user.photoUrl!) : null,
+                  backgroundImage: user.photoUrl != null
+                      ? NetworkImage(user.photoUrl!)
+                      : null,
                   child: user.photoUrl == null
-                      ? Text(user.initial,
-                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700))
+                      ? Text(
+                          user.initial,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        )
                       : null,
                 ),
                 if (isWide) ...[
                   const SizedBox(width: 10),
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 160),
-                    child: Text(user.fullName,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    child: Text(
+                      user.fullName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary50,
                       borderRadius: BorderRadius.circular(AppRadius.pill),
                     ),
-                    child: Text(user.roleLabel,
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                    child: Text(
+                      user.roleLabel,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.keyboard_arrow_down, size: 18, color: AppColors.inkSoft),
+                  const Icon(
+                    Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: AppColors.inkSoft,
+                  ),
                 ],
               ],
             ),
