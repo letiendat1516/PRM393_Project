@@ -24,39 +24,50 @@ class SettingsSection extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
       color: context.surfaceColor,
       borderColor: context.borderMutedColor,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: context.primaryWashColor,
-                  borderRadius: BorderRadius.circular(10),
+      // AppCard renders its background via Container+BoxDecoration
+      // (DecoratedBox). ListTile-shaped children (RadioListTile,
+      // SwitchListTile.adaptive, ListTile(onTap:)) paint their ink
+      // splashes on the nearest Material ancestor — without this
+      // transparent Material, splashes would land on a Material above
+      // the DecoratedBox and get painted over by the card, triggering
+      // the "ListTile background color or ink splashes may be invisible"
+      // assertion every build.
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: context.primaryWashColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, size: 18, color: context.accentColor),
                 ),
-                child: Icon(icon, size: 18, color: context.accentColor),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700, color: context.inkColor)),
-                    if (subtitle != null)
-                      Text(subtitle!,
-                          style: TextStyle(fontSize: 12, color: context.inkMutedColor)),
-                  ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700, color: context.inkColor)),
+                      if (subtitle != null)
+                        Text(subtitle!,
+                            style: TextStyle(fontSize: 12, color: context.inkMutedColor)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...children,
-        ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...children,
+          ],
+        ),
       ),
     );
   }
