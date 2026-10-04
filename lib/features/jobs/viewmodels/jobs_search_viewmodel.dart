@@ -10,6 +10,7 @@ import '../../../core/utils/failure.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/job_model.dart';
 import '../../../shared/models/recommendation_models.dart';
+import '../data/jobs_facet_catalog.dart';
 import '../data/jobs_repository.dart';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -172,7 +173,11 @@ class JobFacets {
   /// jobMapper experience label → count.
   final Map<String, int> levelCounts;
 
-  factory JobFacets.from(List<JobModel> jobs) {
+  factory JobFacets.from(
+    List<JobModel> jobs, {
+    Map<String, int>? serverCategoryCounts,
+    Map<String, int>? serverCityCounts,
+  }) {
     final cat = <String, int>{};
     final city = <String, int>{};
     final lvl = <String, int>{};
@@ -190,9 +195,23 @@ class JobFacets {
       return list;
     }
 
+    // Server counts override loaded-window counts so the sidebar advertises
+    // "Backend Developer (200)" instead of the local 30-doc slice. Values the
+    // server didn't aggregate still fall back to the loaded-window count so
+    // long-tail buckets stay visible as the user scrolls (fixes the
+    // complaint "9800 job nhưng filter tổng vào mới được 36 jobs").
+    final effectiveCat = <String, int>{...cat};
+    if (serverCategoryCounts != null) {
+      effectiveCat.addAll(serverCategoryCounts);
+    }
+    final effectiveCity = <String, int>{...city};
+    if (serverCityCounts != null) {
+      effectiveCity.addAll(serverCityCounts);
+    }
+
     return JobFacets(
-      categories: sorted(cat),
-      cities: sorted(city),
+      categories: sorted(effectiveCat),
+      cities: sorted(effectiveCity),
       levelCounts: lvl,
     );
   }
@@ -213,6 +232,8 @@ class JobsSearchState {
     this.loadedLimit = JobsRepository.defaultChunk,
     this.totalCount,
     this.isLoadingMore = false,
+    this.serverCategoryCounts,
+    this.serverCityCounts,
   });
 
   /// Mock + database jobs (mergeJobs output).
@@ -245,10 +266,24 @@ class JobsSearchState {
   /// after a deep page-jump — used by the UI to disable rapid re-clicks.
   final bool isLoadingMore;
 
+  /// Server-side `.count()` per categoryName for the current keyword,
+  /// scoped by [JobsFacetCatalog.categories]. Null until the first
+  /// aggregation lands; populated keys override the loaded-window counts
+  /// in the sidebar so "Backend Developer (200)" replaces "(30)".
+  final Map<String, int>? serverCategoryCounts;
+
+  /// Same contract as [serverCategoryCounts] but for the `city` field,
+  /// scoped by [JobsFacetCatalog.cities].
+  final Map<String, int>? serverCityCounts;
+
   static const pageSize = AppConfig.pageSize;
 
   // ── derived (lazy, computed once per state instance) ─────────────────
-  late final JobFacets facets = JobFacets.from(sourceJobs);
+  late final JobFacets facets = JobFacets.from(
+    sourceJobs,
+    serverCategoryCounts: serverCategoryCounts,
+    serverCityCounts: serverCityCounts,
+  );
   late final List<JobModel> filtered = _computeFiltered();
 
   /// When a client-side-only filter / search is active the user only sees
@@ -466,6 +501,8 @@ class JobsSearchState {
     int? loadedLimit,
     Object? totalCount = _sentinel,
     bool? isLoadingMore,
+    Object? serverCategoryCounts = _sentinel,
+    Object? serverCityCounts = _sentinel,
   }) => JobsSearchState(
     sourceJobs: sourceJobs ?? this.sourceJobs,
     loading: loading ?? this.loading,
@@ -484,6 +521,12 @@ class JobsSearchState {
         ? this.totalCount
         : totalCount as int?,
     isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+    serverCategoryCounts: identical(serverCategoryCounts, _sentinel)
+        ? this.serverCategoryCounts
+        : serverCategoryCounts as Map<String, int>?,
+    serverCityCounts: identical(serverCityCounts, _sentinel)
+        ? this.serverCityCounts
+        : serverCityCounts as Map<String, int>?,
   );
 }
 
@@ -521,6 +564,7 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
       ) {
     _resubscribe('', state.loadedLimit, _noServerFilter);
     _fetchTotalCount('', _noServerFilter);
+    _fetchFacetCounts('');
   }
 
   final JobsRepository repository;
@@ -623,6 +667,37 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
           limit: limit,
         )
         .listen(_onJobs, onError: _onError);
+  }
+
+  /// Parallel `.count()` for every canonical category + top-city, scoped
+  /// by [keyword] so the sidebar reflects the search context. Runs on
+  /// view-model init and after keyword changes; drops stale responses via
+  /// [_facetRequestId] so the user typing fast only ever lands the newest
+  /// counts. Non-fatal — any failure keeps the previous server counts.
+  int _facetRequestId = 0;
+  Future<void> _fetchFacetCounts(String keyword) async {
+    final id = ++_facetRequestId;
+    try {
+      final results = await Future.wait([
+        repository.aggregateFacetCounts(
+          field: 'categoryName',
+          values: JobsFacetCatalog.categories,
+          keyword: keyword,
+        ),
+        repository.aggregateFacetCounts(
+          field: 'city',
+          values: JobsFacetCatalog.cities,
+          keyword: keyword,
+        ),
+      ]);
+      if (!mounted || id != _facetRequestId) return;
+      state = state.copyWith(
+        serverCategoryCounts: results[0],
+        serverCityCounts: results[1],
+      );
+    } catch (_) {
+      // Keep whatever server counts we last saw.
+    }
   }
 
   /// Runs the Firestore `.count()` aggregation for the active keyword +
@@ -743,6 +818,9 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     state = state.copyWith(loadedLimit: target);
     _resubscribe(trimmed, target, filter);
     _fetchTotalCount(trimmed, filter);
+    // Re-aggregate per-facet counts so the sidebar reflects "N jobs
+    // matching this chip under the current keyword", not the loaded window.
+    _fetchFacetCounts(trimmed);
   }
 
   /// Form submit: remember the keyword (SharedPreferences lastSearchKeywords)
@@ -782,6 +860,7 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     );
     _resubscribe('', JobsRepository.defaultChunk, _noServerFilter);
     _fetchTotalCount('', _noServerFilter);
+    _fetchFacetCounts('');
   }
 
   // ── sort / paging ────────────────────────────────────────────────────

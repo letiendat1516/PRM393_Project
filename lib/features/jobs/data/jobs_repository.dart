@@ -203,6 +203,42 @@ class JobsRepository {
     }
   }
 
+  /// Runs a parallel `.count()` for every [values] on a single [field], so
+  /// the sidebar can show the real server-side bucket size ("Backend
+  /// Developer (200)") instead of the loaded-window count (30 docs = "30").
+  /// The current [keyword] funnels through [_searchTokens] so facet totals
+  /// stay consistent with the result list when the user has typed a query.
+  ///
+  /// Returns a map of `value → count`; missing / failed entries drop
+  /// silently (0 server hits is indistinguishable from a transient failure
+  /// at this layer, and the UI already falls back to the loaded-window
+  /// count for anything missing).
+  Future<Map<String, int>> aggregateFacetCounts({
+    required String field,
+    required List<String> values,
+    String keyword = '',
+  }) async {
+    if (_isUnmatchableKeyword(keyword) || values.isEmpty) return const {};
+    final tokens = _searchTokens(keyword);
+    Future<MapEntry<String, int>?> one(String v) async {
+      try {
+        Query<JobModel> q = _publicQuery();
+        if (tokens.isNotEmpty) {
+          q = q.where('titleTokens', arrayContainsAny: tokens);
+        }
+        q = q.where(field, isEqualTo: v);
+        final agg = await q.count().get();
+        final n = agg.count ?? 0;
+        return n > 0 ? MapEntry(v, n) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final results = await Future.wait(values.map(one));
+    return {for (final e in results.whereType<MapEntry<String, int>>()) e.key: e.value};
+  }
+
   /// Mock-first job lookup (JobDetailPage): a sample job short-circuits the
   /// network, otherwise `jobs/{id}` is streamed. Emits `null` when missing —
   /// including when the security rules deny the read (CLOSED / unapproved
