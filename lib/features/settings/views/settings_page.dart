@@ -262,22 +262,32 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         // a plain ListTile with matching zero padding so both leading
         // icons share the same left edge; onTap opens the stock about
         // dialog the way AboutListTile would have.
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(Icons.info_outline, color: context.inkSoftColor),
-          title: const Text('Về JobHub'),
-          trailing: Icon(Icons.chevron_right, color: context.inkMutedColor),
-          onTap: () => showAboutDialog(
-            context: context,
-            applicationName: 'JobHub',
-            applicationVersion: '1.0.0',
-            applicationIcon: const BrandLogo(compact: true, size: 28),
-            applicationLegalese: 'Nền tảng tuyển dụng Flutter — đồ án PRM393',
-            children: [
-              const SizedBox(height: 12),
-              Text('Nền tảng tuyển dụng Flutter — đồ án PRM393',
-                  style: TextStyle(color: context.inkSoftColor, height: 1.5)),
-            ],
+        //
+        // The Material(color: Colors.transparent) wrapper is required
+        // because AppCard uses a Container+BoxDecoration (DecoratedBox).
+        // A ListTile with onTap paints its ink splash on the nearest
+        // Material ancestor and would otherwise warn + render invisibly
+        // on top of our card decoration; the transparent Material gives
+        // the splash a target that paints above the decoration.
+        Material(
+          color: Colors.transparent,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.info_outline, color: context.inkSoftColor),
+            title: const Text('Về JobHub'),
+            trailing: Icon(Icons.chevron_right, color: context.inkMutedColor),
+            onTap: () => showAboutDialog(
+              context: context,
+              applicationName: 'JobHub',
+              applicationVersion: '1.0.0',
+              applicationIcon: const BrandLogo(compact: true, size: 28),
+              applicationLegalese: 'Nền tảng tuyển dụng Flutter — đồ án PRM393',
+              children: [
+                const SizedBox(height: 12),
+                Text('Nền tảng tuyển dụng Flutter — đồ án PRM393',
+                    style: TextStyle(color: context.inkSoftColor, height: 1.5)),
+              ],
+            ),
           ),
         ),
         ListTile(
