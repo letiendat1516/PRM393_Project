@@ -42,6 +42,16 @@ class GeminiService {
   // The caller supplies OpenAI-style messages ([{role: system/user/assistant,
   // content: ...}]) and this method translates them to Gemini's native shape
   // so the prompt-builder code keeps its OpenAI parity verbatim.
+  /// Fallback models tried in order when the primary one returns 503
+  /// `UNAVAILABLE` (Gemini-side overload — the user's "AI 503" screenshot).
+  /// Each entry has its own quota pool so a flash variant usually still
+  /// answers while the latest alias is throttled.
+  static const _fallbackModels = <String>[
+    'gemini-2.5-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash',
+  ];
+
   Future<({String content, int tokensIn, int tokensOut})> chatCompletion(
     List<Map<String, String>> messages, {
     Duration timeout = const Duration(seconds: 120),
@@ -55,6 +65,59 @@ class GeminiService {
         code: 'AI_KEY_MISSING',
       );
     }
+
+    // Try the configured model first, falling back through a short list of
+    // sibling flash variants when (and only when) the server returns 503
+    // UNAVAILABLE. Each model gets up to 3 attempts with 1-, 3-, 6-second
+    // backoff so a transient overload clears without the user seeing the
+    // raw "AI 503" JSON every click.
+    final attemptModels = <String>[
+      model,
+      for (final m in _fallbackModels)
+        if (m != model) m,
+    ];
+    Failure? lastFailure;
+    for (final m in attemptModels) {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          return await _postOnce(
+            messages,
+            modelOverride: m,
+            key: key,
+            timeout: timeout,
+            maxTokens: maxTokens,
+          );
+        } on Failure catch (f) {
+          lastFailure = f;
+          // Retry inside the same model only for transient-overload codes.
+          final isOverload = f.status == 503 || f.status == 429;
+          if (!isOverload) break; // real error → surface immediately
+          if (attempt < 2) {
+            final backoffSec = 1 << (attempt + 1); // 2, 4
+            await Future<void>.delayed(Duration(seconds: backoffSec));
+          }
+        } catch (e) {
+          lastFailure = Failure.from(e);
+          break; // non-Failure exception (network, timeout) → let outer handle
+        }
+      }
+      // Advance to the next fallback model only if we're still seeing
+      // overload; any other failure means retrying a different model
+      // wouldn't help and the user has already waited long enough.
+      if (lastFailure == null) continue;
+      if (lastFailure.status != 503 && lastFailure.status != 429) break;
+    }
+    throw lastFailure ??
+        const Failure('AI không phản hồi.', status: 503, code: 'AI_HTTP');
+  }
+
+  Future<({String content, int tokensIn, int tokensOut})> _postOnce(
+    List<Map<String, String>> messages, {
+    required String modelOverride,
+    required String key,
+    required Duration timeout,
+    int? maxTokens,
+  }) async {
 
     // OpenAI `system` messages → Gemini `systemInstruction` (singular, string).
     final systemParts = <String>[];
@@ -96,14 +159,24 @@ class GeminiService {
 
     final res = await _client
         .post(
-          Uri.parse('$baseUrl/models/$model:generateContent?key=$key'),
+          Uri.parse('$baseUrl/models/$modelOverride:generateContent?key=$key'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(body),
         )
         .timeout(timeout);
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Failure('AI ${res.statusCode}: ${res.body}', status: res.statusCode, code: 'AI_HTTP');
+      // Translate the two overload codes to human-readable Vietnamese so
+      // the user doesn't see raw JSON. Everything else keeps the body for
+      // debugging ("AI_HTTP" is still the sentinel code).
+      final friendly = switch (res.statusCode) {
+        503 =>
+          'Gemini đang quá tải (503). Đã thử lại nhiều lần nhưng chưa phản hồi — vui lòng thử lại sau ít phút.',
+        429 =>
+          'Gemini báo vượt quota (429). Hãy chờ ít phút rồi thử lại hoặc cập nhật GEMINI_API_KEY.',
+        _ => 'AI ${res.statusCode}: ${res.body}',
+      };
+      throw Failure(friendly, status: res.statusCode, code: 'AI_HTTP');
     }
     final json = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     final candidates = json['candidates'] as List? ?? const [];

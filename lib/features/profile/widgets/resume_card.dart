@@ -98,7 +98,7 @@ class ResumeCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   const Expanded(
                     child: Text(
-                      'Tệp chưa được lưu trữ. Dán nội dung CV để AI có thể phân tích.',
+                      'Chưa đọc được nội dung CV (file ảnh/scan). Dán nội dung để AI chấm điểm.',
                       style: TextStyle(fontSize: 12, color: AppColors.amber700),
                     ),
                   ),

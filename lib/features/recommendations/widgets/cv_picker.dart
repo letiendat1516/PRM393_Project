@@ -5,12 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/failure.dart';
+import '../../../core/utils/pdf_text_extractor.dart';
 import '../../../shared/models/resume_model.dart';
 import '../../auth/viewmodels/current_user_provider.dart';
 import '../viewmodels/ai_matching_viewmodel.dart';
@@ -23,24 +23,6 @@ class CvPicker extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<CvPicker> createState() => _CvPickerState();
-}
-
-/// pdfjs page loop equivalent: text of every page, one page per line.
-/// Top-level so it can run through [compute] (pure Dart, isolate-safe).
-String _extractPdfText(Uint8List bytes) {
-  final doc = PdfDocument(inputBytes: bytes);
-  try {
-    final extractor = PdfTextExtractor(doc);
-    final buf = StringBuffer();
-    for (var i = 0; i < doc.pages.count; i++) {
-      buf
-        ..write(extractor.extractText(startPageIndex: i))
-        ..write('\n');
-    }
-    return buf.toString();
-  } finally {
-    doc.dispose();
-  }
 }
 
 class _CvPickerState extends ConsumerState<CvPicker> {
@@ -79,7 +61,7 @@ class _CvPickerState extends ConsumerState<CvPicker> {
       if (bytes == null) throw Exception('Không đọc được dữ liệu file');
       String text;
       if (name.toLowerCase().endsWith('.pdf')) {
-        text = await compute(_extractPdfText, bytes);
+        text = await compute(extractPdfText, bytes);
       } else {
         // .txt / .doc — read as text (`file.text()`)
         text = utf8.decode(bytes, allowMalformed: true);

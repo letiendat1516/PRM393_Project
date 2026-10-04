@@ -148,23 +148,6 @@ class _ResumeUploadCardState extends ConsumerState<ResumeUploadCard> {
             padding: EdgeInsets.all(16),
             text: ResumesViewModel.uploadSuccess,
           ),
-          if (state.storageNotice != null) ...[
-            const SizedBox(height: 12),
-            StatusBanner(
-              tone: BannerTone.warning,
-              bordered: true,
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.warning_amber_outlined,
-                      size: 18, color: AppColors.amber700),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(state.storageNotice!)),
-                ],
-              ),
-            ),
-          ],
         ],
       ],
     );

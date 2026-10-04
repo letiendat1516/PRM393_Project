@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/utils/failure.dart';
+import '../../../core/utils/pdf_text_extractor.dart';
 import '../../../shared/models/resume_model.dart';
 import '../data/profile_repository.dart';
 import 'profile_providers.dart';
@@ -27,15 +28,11 @@ class ResumesState {
   const ResumesState({
     this.upload = UploadStatus.idle,
     this.uploadError,
-    this.storageNotice,
     this.runs = const {},
   });
 
   final UploadStatus upload;
   final String? uploadError;
-
-  /// Set after an upload whose file could not be persisted (no Storage).
-  final String? storageNotice;
 
   final Map<String, AnalysisRunState> runs;
 
@@ -46,16 +43,12 @@ class ResumesState {
   ResumesState copyWith({
     UploadStatus? upload,
     String? uploadError,
-    String? storageNotice,
     Map<String, AnalysisRunState>? runs,
     bool clearUploadError = false,
-    bool clearStorageNotice = false,
   }) =>
       ResumesState(
         upload: upload ?? this.upload,
         uploadError: clearUploadError ? null : (uploadError ?? this.uploadError),
-        storageNotice:
-            clearStorageNotice ? null : (storageNotice ?? this.storageNotice),
         runs: runs ?? this.runs,
       );
 }
@@ -89,9 +82,6 @@ class ResumesViewModel extends StateNotifier<ResumesState> {
   static const wrongType = 'Chỉ chấp nhận tệp PDF hoặc .txt.';
   static const tooLarge = 'Tệp CV tối đa 5 MB.';
   static const extractFailed = 'Không thể trích xuất CV';
-  static const storageUnavailable =
-      'Không thể lưu trữ tệp PDF (Firebase Storage chưa được bật). CV đã được '
-      'lưu ở dạng thông tin — hãy dùng "Dán nội dung CV" để AI có thể phân tích.';
 
   ProfileRepository get _repo => _ref.read(profileRepositoryProvider);
 
@@ -113,7 +103,6 @@ class ResumesViewModel extends StateNotifier<ResumesState> {
     state = state.copyWith(
       upload: UploadStatus.idle,
       clearUploadError: true,
-      clearStorageNotice: true,
     );
   }
 
@@ -142,12 +131,28 @@ class ResumesViewModel extends StateNotifier<ResumesState> {
     state = state.copyWith(
       upload: UploadStatus.uploading,
       clearUploadError: true,
-      clearStorageNotice: true,
     );
     try {
+      // Extract text up-front — a PDF goes through syncfusion_flutter_pdf
+      // on an isolate so the user doesn't have to pay for Firebase Storage
+      // (previous flow uploaded the binary and depended on Storage being
+      // enabled; without it the resume ended up with no rawText and AI
+      // Matching had nothing to score). Short-circuiting straight to the
+      // text layer also removes the "Firebase Storage chưa được bật"
+      // amber banner from the UI.
       String? rawText;
       if (file!.isText) {
         rawText = _decodeText(file.bytes);
+      } else if (file.isPdf) {
+        try {
+          final extracted = await compute(extractPdfText, file.bytes);
+          final trimmed = extracted.trim();
+          if (trimmed.isNotEmpty) rawText = trimmed;
+        } catch (_) {
+          // Scanned / image-only PDFs produce empty text — fall through
+          // to the "Dán nội dung CV" affordance.
+          rawText = null;
+        }
       }
       final result = await _repo.createResume(
         uid: _requireUid(),
@@ -156,11 +161,7 @@ class ResumesViewModel extends StateNotifier<ResumesState> {
         bytes: file.bytes,
         rawText: rawText,
       );
-      state = state.copyWith(
-        upload: UploadStatus.success,
-        storageNotice:
-            (!result.fileStored && file.isPdf) ? storageUnavailable : null,
-      );
+      state = state.copyWith(upload: UploadStatus.success);
       // UC-AI-01: background analysis right after upload (web backend
       // `ResumeService.analyzeResume(...).catch(log)`), only when there is
       // text for the model to read. `analyze()` stores failures per-CV.
