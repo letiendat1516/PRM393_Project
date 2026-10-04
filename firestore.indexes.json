@@ -27,6 +27,17 @@
     { "collectionGroup": "jobs", "queryScope": "COLLECTION", "fields": [
       {"fieldPath": "isApproved", "order": "ASCENDING"},
       {"fieldPath": "status", "order": "ASCENDING"},
+      {"fieldPath": "categoryName", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"} ] },
+    { "collectionGroup": "jobs", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleTokens", "arrayConfig": "CONTAINS"},
+      {"fieldPath": "isApproved", "order": "ASCENDING"},
+      {"fieldPath": "status", "order": "ASCENDING"},
+      {"fieldPath": "categoryName", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"} ] },
+    { "collectionGroup": "jobs", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "isApproved", "order": "ASCENDING"},
+      {"fieldPath": "status", "order": "ASCENDING"},
       {"fieldPath": "employerId", "order": "ASCENDING"},
       {"fieldPath": "createdAt", "order": "DESCENDING"} ] },
     { "collectionGroup": "jobs", "queryScope": "COLLECTION", "fields": [

@@ -80,34 +80,62 @@ String braceBody(String src, String header) {
 /// Mirror 1-1 của `JobsSearchViewModel._serverFilter()`
 /// (lib/features/jobs/viewmodels/jobs_search_viewmodel.dart): flatten toàn bộ
 /// filter state, hoist CHỈ khi đúng 1 (key, value) và key ∈ {cities,
-/// workMode, jobType}. Dùng JobsFilters + parseWorkMode/parseJobType THẬT.
-({String? city, WorkMode? workMode, JobType? jobType}) mirrorServerFilter(
-  JobsFilters filters,
-) {
+/// workMode, jobType, categories}. categoryName được thêm trong fix search
+/// (49 category trong catalogue, mỗi category ~200 jobs — hoist để
+/// server-side count accurate thay vì chỉ matching trên 30-doc loaded window).
+({String? city, WorkMode? workMode, JobType? jobType, String? categoryName})
+mirrorServerFilter(JobsFilters filters) {
+  const nulls = (
+    city: null,
+    workMode: null,
+    jobType: null,
+    categoryName: null,
+  );
   final flat = filters.flatten();
-  if (flat.length != 1) return (city: null, workMode: null, jobType: null);
+  if (flat.length != 1) return nulls;
   final (key, value) = flat.single;
   return switch (key) {
     // 'Chưa cập nhật' là fallback display (locationOf) cho job thiếu cả
     // location lẫn city — không doc nào có city == chuỗi đó trên Firestore.
-    JobFilterKey.cities when value == 'Chưa cập nhật' =>
-      (city: null, workMode: null, jobType: null),
-    JobFilterKey.cities => (city: value, workMode: null, jobType: null),
+    JobFilterKey.cities when value == 'Chưa cập nhật' => nulls,
+    JobFilterKey.cities => (
+      city: value,
+      workMode: null,
+      jobType: null,
+      categoryName: null,
+    ),
     JobFilterKey.workMode => (
       city: null,
       workMode: parseWorkMode(value),
       jobType: null,
+      categoryName: null,
     ),
     JobFilterKey.jobType => (
       city: null,
       workMode: null,
       jobType: parseJobType(value),
+      categoryName: null,
     ),
-    _ => (city: null, workMode: null, jobType: null),
+    // 'Ngành nghề khác' là bucket categoryOf() cho job thiếu categoryName —
+    // y hệt 'Chưa cập nhật' với city, không doc nào có categoryName == chuỗi
+    // đó nên không hoist.
+    JobFilterKey.categories when value == 'Ngành nghề khác' => nulls,
+    JobFilterKey.categories => (
+      city: null,
+      workMode: null,
+      jobType: null,
+      categoryName: value,
+    ),
+    _ => nulls,
   };
 }
 
-const _nulls = (city: null, workMode: null, jobType: null);
+const _nulls = (
+  city: null,
+  workMode: null,
+  jobType: null,
+  categoryName: null,
+);
 
 void main() {
   final repoSrc = File('lib/features/jobs/data/jobs_repository.dart')
@@ -116,19 +144,68 @@ void main() {
       .readAsStringSync();
 
   group('phân loại _serverFilter (JobsFilters thật + decision mirror)', () {
-    test('đúng 1 city → hoist city, 2 facet còn lại null', () {
+    test('đúng 1 city → hoist city, 3 facet còn lại null', () {
       final f = mirrorServerFilter(const JobsFilters(cities: {'Hà Nội'}));
-      expect(f, (city: 'Hà Nội', workMode: null, jobType: null));
+      expect(
+        f,
+        (city: 'Hà Nội', workMode: null, jobType: null, categoryName: null),
+      );
     });
 
     test('đúng 1 workMode (wire) → hoist enum đã parse', () {
       final f = mirrorServerFilter(const JobsFilters(workMode: {'REMOTE'}));
-      expect(f, (city: null, workMode: WorkMode.remote, jobType: null));
+      expect(
+        f,
+        (
+          city: null,
+          workMode: WorkMode.remote,
+          jobType: null,
+          categoryName: null,
+        ),
+      );
     });
 
     test('đúng 1 jobType (wire) → hoist enum đã parse', () {
       final f = mirrorServerFilter(const JobsFilters(jobType: {'FULL_TIME'}));
-      expect(f, (city: null, workMode: null, jobType: JobType.fullTime));
+      expect(
+        f,
+        (
+          city: null,
+          workMode: null,
+          jobType: JobType.fullTime,
+          categoryName: null,
+        ),
+      );
+    });
+
+    test('đúng 1 categoryName → hoist để count server-side (fix "chỉ 2 IT")',
+        () {
+      final f = mirrorServerFilter(
+        const JobsFilters(categories: {'Backend Developer'}),
+      );
+      expect(
+        f,
+        (
+          city: null,
+          workMode: null,
+          jobType: null,
+          categoryName: 'Backend Developer',
+        ),
+        reason: 'catalog có 49 category x ~200 jobs — hoist để chip trả về '
+            'full subset thay vì chỉ 30-doc loaded window',
+      );
+    });
+
+    test("chip category 'Ngành nghề khác' → KHÔNG hoist (bucket không có "
+        'trên server)', () {
+      expect(
+        mirrorServerFilter(
+          const JobsFilters(categories: {'Ngành nghề khác'}),
+        ),
+        _nulls,
+        reason: 'bucket categoryOf() cho job thiếu categoryName — hoist lên '
+            "sẽ where categoryName == 'Ngành nghề khác' → 0 kết quả",
+      );
     });
 
     test('2 city cùng lúc → KHÔNG hoist (multi-value một facet)', () {
@@ -149,10 +226,10 @@ void main() {
       );
     });
 
-    test('city + mỗi facet không-hoist được → KHÔNG hoist', () {
+    test('city + mỗi facet khác → KHÔNG hoist (2 facet composite)', () {
       for (final f in const [
         JobsFilters(cities: {'Hà Nội'}, salary: {'negotiable'}),
-        JobsFilters(cities: {'Hà Nội'}, categories: {'IT'}),
+        JobsFilters(cities: {'Hà Nội'}, categories: {'Backend Developer'}),
         JobsFilters(cities: {'Hà Nội'}, experience: {'SENIOR'}),
         JobsFilters(cities: {'Hà Nội'}, jobLevel: {'Nhân viên'}),
       ]) {
@@ -165,7 +242,6 @@ void main() {
     });
 
     test('đúng 1 chip nhưng thuộc facet không hoist được → nulls', () {
-      expect(mirrorServerFilter(const JobsFilters(categories: {'IT'})), _nulls);
       expect(
         mirrorServerFilter(const JobsFilters(experience: {'FRESHER'})),
         _nulls,
@@ -231,7 +307,7 @@ void main() {
   });
 
   group('contract source — repo V15 (server-side facet)', () {
-    test('watchPublicJobs/countPublicJobs nhận 3 facet param optional', () {
+    test('watchPublicJobs/countPublicJobs nhận 4 facet param optional', () {
       for (final sig in const [
         'Stream<List<JobModel>> watchPublicJobs(',
         'Future<int> countPublicJobs(',
@@ -244,10 +320,12 @@ void main() {
             reason: '$sig thiếu param workMode');
         expect(has(body, 'JobType? jobType,'), isTrue,
             reason: '$sig thiếu param jobType');
+        expect(has(body, 'String? categoryName,'), isTrue,
+            reason: '$sig thiếu param categoryName (fix "chỉ 2 IT")');
       }
     });
 
-    test('_applyFacetFilter: 3 where clause đúng field + wire value', () {
+    test('_applyFacetFilter: 4 where clause đúng field + wire value', () {
       final body = memberBody(repoSrc, 'Query<JobModel> _applyFacetFilter(');
       expect(body, isNotEmpty, reason: 'trích được _applyFacetFilter');
       expect(
@@ -267,36 +345,40 @@ void main() {
         isTrue,
         reason: 'jobType phải so với wire value (FULL_TIME/PART_TIME/…)',
       );
+      expect(
+        pos(body, "where('categoryName', isEqualTo: categoryName)") >= 0,
+        isTrue,
+        reason: 'categoryName chạy string equality — index mới '
+            '(isApproved,status,categoryName,createdAt)',
+      );
     });
 
-    test('_applyFacetFilter: priority city > workMode > jobType (if-chain)', () {
-      final body = memberBody(repoSrc, 'Query<JobModel> _applyFacetFilter(');
-      final pIfCity = pos(body, 'if (city != null)');
-      final pCity = pos(body, "where('city', isEqualTo: city)");
-      final pMode = pos(
-        body,
-        "where('workMode', isEqualTo: enumToWire(workMode))",
-      );
-      final pType = pos(
-        body,
-        "where('jobType', isEqualTo: enumToWire(jobType))",
-      );
-      expect(
-        pCity > pIfCity,
-        isTrue,
-        reason: 'where city nằm trong nhánh if city != null',
-      );
-      expect(
-        pMode > pCity,
-        isTrue,
-        reason: 'caller truyền city + workMode → city thắng (áp dụng trước)',
-      );
-      expect(
-        pType > pMode,
-        isTrue,
-        reason: 'caller truyền workMode + jobType → workMode thắng',
-      );
-    });
+    test(
+      '_applyFacetFilter: priority city > workMode > jobType > categoryName',
+      () {
+        final body = memberBody(repoSrc, 'Query<JobModel> _applyFacetFilter(');
+        final pIfCity = pos(body, 'if (city != null)');
+        final pCity = pos(body, "where('city', isEqualTo: city)");
+        final pMode = pos(
+          body,
+          "where('workMode', isEqualTo: enumToWire(workMode))",
+        );
+        final pType = pos(
+          body,
+          "where('jobType', isEqualTo: enumToWire(jobType))",
+        );
+        final pCat = pos(
+          body,
+          "where('categoryName', isEqualTo: categoryName)",
+        );
+        expect(pCity > pIfCity, isTrue,
+            reason: 'where city nằm trong nhánh if city != null');
+        expect(pMode > pCity, isTrue,
+            reason: 'city thắng workMode (áp dụng trước)');
+        expect(pType > pMode, isTrue, reason: 'workMode thắng jobType');
+        expect(pCat > pType, isTrue, reason: 'jobType thắng categoryName');
+      },
+    );
 
     test('_applyFacetFilter: assert chặn caller truyền >1 facet (debug)', () {
       final body = memberBody(repoSrc, 'Query<JobModel> _applyFacetFilter(');
@@ -304,7 +386,7 @@ void main() {
         has(
           body,
           '(city != null ? 1 : 0) + (workMode != null ? 1 : 0) + '
-          '(jobType != null ? 1 : 0) <= 1',
+          '(jobType != null ? 1 : 0) + (categoryName != null ? 1 : 0) <= 1',
         ),
         isTrue,
         reason: 'assert ≤1 facet — caller sai phải bị bắn ngay ở debug build',
@@ -322,14 +404,13 @@ void main() {
         'Stream<List<JobModel>> watchPublicJobs(',
       );
       final guard = pos(body, 'if (_isUnmatchableKeyword(keyword))');
-      final facet = pos(
-        body,
-        'q = _applyFacetFilter(q, city: city, workMode: workMode, jobType: jobType);',
-      );
+      // Chỉ cần facet chain có mặt sau guard — không pin named-args order
+      // vì fomatter + 4 param đã break single-line signature match.
+      final facet = pos(body, 'q = _applyFacetFilter(');
       expect(guard >= 0, isTrue,
           reason: 'guard #11 phải còn (V13 đã pin — nhắc lại cho layer này)');
       expect(facet >= 0, isTrue,
-          reason: 'watchPublicJobs phải gọi _applyFacetFilter với đủ 3 facet');
+          reason: 'watchPublicJobs phải gọi _applyFacetFilter');
       expect(facet > guard, isTrue,
           reason: 'facet chain đặt sau guard — keyword "c" vẫn ra stream rỗng '
               'kể cả khi có facet');
@@ -338,10 +419,7 @@ void main() {
     test('countPublicJobs: guard return 0 TRƯỚC facet chain', () {
       final body = memberBody(repoSrc, 'Future<int> countPublicJobs(');
       final guard = pos(body, 'if (_isUnmatchableKeyword(keyword)) return 0;');
-      final facet = pos(
-        body,
-        'q = _applyFacetFilter(q, city: city, workMode: workMode, jobType: jobType);',
-      );
+      final facet = pos(body, 'q = _applyFacetFilter(');
       expect(guard >= 0, isTrue);
       expect(facet >= 0, isTrue,
           reason: 'countPublicJobs phải cùng chain facet với watch — không '
@@ -356,7 +434,7 @@ void main() {
       expect(has(vmSrc, 'static const JobsServerFilter _noServerFilter'), isTrue);
     });
 
-    test('_serverFilter: gate flatten đúng 1 entry + 3 nhánh hoist', () {
+    test('_serverFilter: gate flatten đúng 1 entry + 4 nhánh hoist', () {
       final body = braceBody(vmSrc, 'JobsServerFilter _serverFilter() {');
       expect(body, isNotEmpty, reason: 'trích được _serverFilter');
       expect(has(body, 'final flat = state.filters.flatten();'), isTrue,
@@ -364,16 +442,16 @@ void main() {
               'riêng thì city+salary vẫn hoist được là sai spec');
       expect(has(body, 'if (flat.length != 1) return _noServerFilter;'), isTrue,
           reason: 'đúng 1 chip DUY NHẤT trên 7 loại filter mới được hoist');
-      expect(
-        has(
-          body,
-          'JobFilterKey.cities => (city: value, workMode: null, jobType: null)',
-        ),
-        isTrue,
-      );
+      // Record field order không được format pin — chỉ cần field + value có mặt.
+      expect(has(body, 'JobFilterKey.cities =>'), isTrue,
+          reason: 'nhánh cities phải hoist city param');
+      expect(has(body, 'city: value'), isTrue);
       expect(has(body, 'workMode: parseWorkMode(value)'), isTrue,
           reason: 'wire string → enum qua parseWorkMode trước khi xuống repo');
       expect(has(body, 'jobType: parseJobType(value)'), isTrue);
+      expect(has(body, 'JobFilterKey.categories =>'), isTrue,
+          reason: 'nhánh categories hoist categoryName (fix "chỉ 2 IT")');
+      expect(has(body, 'categoryName: value'), isTrue);
       expect(
         has(
           body,
@@ -383,9 +461,18 @@ void main() {
         reason: 'sentinel display không có doc tương ứng trên Firestore — '
             'phải giữ client-side',
       );
+      expect(
+        has(
+          body,
+          "JobFilterKey.categories when value == 'Ngành nghề khác' => _noServerFilter",
+        ),
+        isTrue,
+        reason: "bucket 'Ngành nghề khác' là categoryOf fallback — không có "
+            'doc nào có categoryName == bucket name',
+      );
     });
 
-    test('_resubscribe: pass đủ 3 facet qua repo + track _subscribedFilter', () {
+    test('_resubscribe: pass đủ 4 facet qua repo + track _subscribedFilter', () {
       final body = braceBody(
         vmSrc,
         'void _resubscribe(String keyword, int limit, JobsServerFilter filter) {',
@@ -395,6 +482,9 @@ void main() {
       expect(has(body, 'city: filter.city,'), isTrue);
       expect(has(body, 'workMode: filter.workMode,'), isTrue);
       expect(has(body, 'jobType: filter.jobType,'), isTrue);
+      expect(has(body, 'categoryName: filter.categoryName,'), isTrue,
+          reason: 'repo .watchPublicJobs nhận categoryName để chain '
+              '.where("categoryName",==) server-side');
     });
 
     test('_fetchTotalCount: countPublicJobs nhận cùng facet với stream', () {
@@ -406,6 +496,9 @@ void main() {
       expect(has(body, 'city: filter.city,'), isTrue);
       expect(has(body, 'workMode: filter.workMode,'), isTrue);
       expect(has(body, 'jobType: filter.jobType,'), isTrue);
+      expect(has(body, 'categoryName: filter.categoryName,'), isTrue,
+          reason: 'count aggregation phải cùng facet set với stream — chip '
+              'category hoist cũng cần N việc làm chính xác');
     });
 
     test('_reconcileSubscription: so sánh filter + refetch count khi đổi', () {

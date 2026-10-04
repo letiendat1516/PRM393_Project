@@ -278,17 +278,26 @@ class JobsSearchState {
   bool get hasActiveFilters => filters.isNotEmpty;
 
   /// True when the active filter is exactly ONE chip from
-  /// {cities, workMode, jobType} — in which case [JobsRepository] already
-  /// scopes the stream *and* the aggregation count server-side, so
-  /// [totalCount] reflects the full matching subset (e.g. 2744 Hà Nội jobs)
-  /// instead of only the loaded 30-doc window.
+  /// {cities, workMode, jobType, categories} — in which case
+  /// [JobsRepository] already scopes the stream *and* the aggregation count
+  /// server-side, so [totalCount] reflects the full matching subset
+  /// (e.g. 200 Backend Developer jobs, 2744 Hà Nội jobs) instead of only the
+  /// loaded 30-doc window.
   bool get isServerSideFacet {
     final chips = filters.flatten();
     if (chips.length != 1) return false;
-    final key = chips.first.$1;
+    final (key, value) = chips.first;
+    // Match the fallback sentinels in [JobsSearchViewModel._serverFilter]: the
+    // 'Chưa cập nhật' / 'Ngành nghề khác' buckets are UI synthetic labels, not
+    // Firestore field values, so chip ∧ facet don't actually agree server-side.
+    if (key == JobFilterKey.cities && value == 'Chưa cập nhật') return false;
+    if (key == JobFilterKey.categories && value == 'Ngành nghề khác') {
+      return false;
+    }
     return key == JobFilterKey.cities ||
         key == JobFilterKey.workMode ||
-        key == JobFilterKey.jobType;
+        key == JobFilterKey.jobType ||
+        key == JobFilterKey.categories;
   }
 
   /// displayTotal: filtered count while a client-side-only filter / search
@@ -502,6 +511,7 @@ typedef JobsServerFilter = ({
   String? city,
   WorkMode? workMode,
   JobType? jobType,
+  String? categoryName,
 });
 
 class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
@@ -530,15 +540,21 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     city: null,
     workMode: null,
     jobType: null,
+    categoryName: null,
   );
 
   /// Hoists the filter state into a Firestore `.where()` when it is EXACTLY
-  /// one hoistable facet value (city | workMode | jobType) and nothing else
-  /// is selected. Multi-facet, or any salary/category/experience/jobLevel
-  /// chip alongside, returns [_noServerFilter] so those combos keep
+  /// one hoistable facet value (city | workMode | jobType | categoryName)
+  /// and nothing else is selected. Multi-facet, or any salary / experience /
+  /// jobLevel chip alongside, returns [_noServerFilter] so those combos keep
   /// filtering the loaded window client-side — the composite indexes only
   /// cover one facet at a time, and pulling all 9800 docs for exact
-  /// multi-facet counts OOMs the Android debug heap.
+  /// multi-facet counts OOMs the Android debug heap. Category hoisting
+  /// matters because the catalogue has 49 real categories ("Backend
+  /// Developer", "Content Marketing" …) with ~200 jobs each; without
+  /// pushing the filter down a single chip would otherwise only match the
+  /// 30-doc loaded window, so users saw "2 việc làm" when the server has
+  /// hundreds.
   JobsServerFilter _serverFilter() {
     final flat = state.filters.flatten();
     if (flat.length != 1) return _noServerFilter;
@@ -549,16 +565,34 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
       // that literal, so hoisting it would return 0 server hits for a chip
       // the sidebar may advertise with a count. Keep it client-side.
       JobFilterKey.cities when value == 'Chưa cập nhật' => _noServerFilter,
-      JobFilterKey.cities => (city: value, workMode: null, jobType: null),
+      JobFilterKey.cities => (
+        city: value,
+        workMode: null,
+        jobType: null,
+        categoryName: null,
+      ),
       JobFilterKey.workMode => (
         city: null,
         workMode: parseWorkMode(value),
         jobType: null,
+        categoryName: null,
       ),
       JobFilterKey.jobType => (
         city: null,
         workMode: null,
         jobType: parseJobType(value),
+        categoryName: null,
+      ),
+      // Same fallback story as cities — the chip "Ngành nghề khác" is
+      // JobsSearchState.categoryOf's bucket for jobs without a categoryName,
+      // which never appears as a Firestore value, so keep that one client-
+      // side and let every real category hoist cleanly.
+      JobFilterKey.categories when value == 'Ngành nghề khác' => _noServerFilter,
+      JobFilterKey.categories => (
+        city: null,
+        workMode: null,
+        jobType: null,
+        categoryName: value,
       ),
       _ => _noServerFilter,
     };
@@ -579,6 +613,7 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
           city: filter.city,
           workMode: filter.workMode,
           jobType: filter.jobType,
+          categoryName: filter.categoryName,
           limit: limit,
         )
         .listen(_onJobs, onError: _onError);
@@ -595,6 +630,7 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
         city: filter.city,
         workMode: filter.workMode,
         jobType: filter.jobType,
+        categoryName: filter.categoryName,
       );
       if (!mounted || id != _countRequestId) return;
       state = state.copyWith(totalCount: n);

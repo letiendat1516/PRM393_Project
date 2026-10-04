@@ -57,6 +57,7 @@ class JobsRepository {
     String? city,
     WorkMode? workMode,
     JobType? jobType,
+    String? categoryName,
     int limit = publicLimit,
   }) {
     if (_isUnmatchableKeyword(keyword)) {
@@ -67,7 +68,13 @@ class JobsRepository {
     if (tokens.isNotEmpty) {
       q = q.where('titleTokens', arrayContainsAny: tokens);
     }
-    q = _applyFacetFilter(q, city: city, workMode: workMode, jobType: jobType);
+    q = _applyFacetFilter(
+      q,
+      city: city,
+      workMode: workMode,
+      jobType: jobType,
+      categoryName: categoryName,
+    );
     return _guard(
       q
           .orderBy('createdAt', descending: true)
@@ -78,24 +85,27 @@ class JobsRepository {
   }
 
   /// Chains ONE equality facet onto [query], priority `city > workMode >
-  /// jobType`. Composite indexes only exist for a single facet on top of the
-  /// base `(isApproved, status)` (+ optional titleTokens) query — passing two
-  /// facets at once would fail with FAILED_PRECONDITION, so the [assert]
-  /// flags buggy callers in debug builds and the extra facets simply drop
-  /// (the client-side pass still applies them on the loaded window).
+  /// jobType > categoryName`. Composite indexes only exist for a single facet
+  /// on top of the base `(isApproved, status)` (+ optional titleTokens) query
+  /// — passing two facets at once would fail with FAILED_PRECONDITION, so the
+  /// [assert] flags buggy callers in debug builds and the extra facets simply
+  /// drop (the client-side pass still applies them on the loaded window).
   Query<JobModel> _applyFacetFilter(
     Query<JobModel> query, {
     String? city,
     WorkMode? workMode,
     JobType? jobType,
+    String? categoryName,
   }) {
     assert(
       (city != null ? 1 : 0) +
               (workMode != null ? 1 : 0) +
-              (jobType != null ? 1 : 0) <=
+              (jobType != null ? 1 : 0) +
+              (categoryName != null ? 1 : 0) <=
           1,
       'watchPublicJobs/countPublicJobs support at most ONE server-side facet '
-      '(priority city > workMode > jobType); keep the rest client-side.',
+      '(priority city > workMode > jobType > categoryName); keep the rest '
+      'client-side.',
     );
     if (city != null) return query.where('city', isEqualTo: city);
     if (workMode != null) {
@@ -104,17 +114,50 @@ class JobsRepository {
     if (jobType != null) {
       return query.where('jobType', isEqualTo: enumToWire(jobType));
     }
+    if (categoryName != null) {
+      return query.where('categoryName', isEqualTo: categoryName);
+    }
     return query;
   }
 
   /// Firestore `arrayContainsAny` caps at 10 operands. We feed it the first
-  /// 10 tokenised fragments of the user's keyword (matches titleTokens on write).
+  /// 10 tokenised fragments of the user's keyword (matches titleTokens on
+  /// write) plus a short synonym table for common Vietnamese industry /
+  /// tech terms so a search for "IT" or "CNTT" surfaces jobs whose titles
+  /// use the English role name (Backend / Frontend / DevOps / Developer)
+  /// — the synthetic catalogue has 49 categories like "Backend Developer"
+  /// and no literal "IT" category, so without expansion generic queries
+  /// returned 0–2 matches.
   static List<String> _searchTokens(String keyword) {
     final k = keyword.trim();
     if (k.isEmpty) return const [];
-    final tokens = JobModel.tokenize(k).take(10).toList(growable: false);
-    return tokens;
+    final base = JobModel.tokenize(k).toList();
+    final expanded = <String>{...base};
+    for (final t in base) {
+      final syn = _searchSynonyms[t];
+      if (syn != null) expanded.addAll(syn);
+    }
+    return expanded.take(10).toList(growable: false);
   }
+
+  /// Keys are already-tokenised fragments (lowercase, no diacritics). Values
+  /// are additional tokens to OR into the Firestore `arrayContainsAny` query.
+  /// Kept conservative — every entry should map a widely-used generic term
+  /// to concrete role words that actually appear in the catalogue.
+  static const Map<String, List<String>> _searchSynonyms = {
+    'it': ['developer', 'engineer', 'backend', 'frontend', 'devops'],
+    'cntt': ['developer', 'engineer', 'backend', 'frontend', 'devops'],
+    'lap': ['developer', 'engineer', 'programmer'],
+    'trinh': ['developer', 'programmer', 'coder'],
+    'kinh': ['sales', 'business'],
+    'doanh': ['sales', 'business'],
+    'ban': ['sales', 'retail'],
+    'nhan': ['hr', 'recruitment'],
+    'su': ['hr', 'recruitment'],
+    'mar': ['marketing', 'digital', 'content', 'brand'],
+    'ke': ['accountant', 'accounting', 'finance'],
+    'toan': ['accountant', 'accounting', 'finance'],
+  };
 
   /// True when the user typed something non-empty that [JobModel.tokenize]
   /// cannot turn into a search token (e.g. a single character). Without
@@ -137,6 +180,7 @@ class JobsRepository {
     String? city,
     WorkMode? workMode,
     JobType? jobType,
+    String? categoryName,
   }) async {
     if (_isUnmatchableKeyword(keyword)) return 0;
     final tokens = _searchTokens(keyword);
@@ -144,7 +188,13 @@ class JobsRepository {
     if (tokens.isNotEmpty) {
       q = q.where('titleTokens', arrayContainsAny: tokens);
     }
-    q = _applyFacetFilter(q, city: city, workMode: workMode, jobType: jobType);
+    q = _applyFacetFilter(
+      q,
+      city: city,
+      workMode: workMode,
+      jobType: jobType,
+      categoryName: categoryName,
+    );
     try {
       final agg = await q.count().get();
       return agg.count ?? 0;

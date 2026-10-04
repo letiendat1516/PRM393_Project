@@ -254,23 +254,30 @@ void main() {
       );
     });
 
-    test('_searchTokens: trim → empty guard → JobModel.tokenize(k).take(10)',
-        () {
-      final body = memberBody(
-        repoSrc,
-        'static List<String> _searchTokens(',
-      );
-      expect(body, isNotEmpty,
-          reason: 'trích được _searchTokens ra khỏi source');
-      expect(has(body, 'final k = keyword.trim();'), isTrue);
-      expect(has(body, 'if (k.isEmpty) return const [];'), isTrue);
-      expect(
-        has(body, 'JobModel.tokenize(k).take(10).toList(growable: false);'),
-        isTrue,
-        reason: 'tokens = JobModel.tokenize(k).take(10) — mirror ở đầu file '
-            'phải giữ đúng dạng này nếu ai sửa lib thì đổi cả mirror',
-      );
-    });
+    test(
+      '_searchTokens: trim → empty guard → tokenize + synonym expand → '
+      'take(10)',
+      () {
+        final body = memberBody(
+          repoSrc,
+          'static List<String> _searchTokens(',
+        );
+        expect(body, isNotEmpty,
+            reason: 'trích được _searchTokens ra khỏi source');
+        expect(has(body, 'final k = keyword.trim();'), isTrue);
+        expect(has(body, 'if (k.isEmpty) return const [];'), isTrue);
+        expect(has(body, 'JobModel.tokenize(k)'), isTrue,
+            reason: 'base tokens vẫn phải từ JobModel.tokenize (fallback khi '
+                'không có synonym — mirror ở đầu file dùng chung helper này)');
+        expect(has(body, '_searchSynonyms'), isTrue,
+            reason: 'synonym map được inject để "IT"/"CNTT" khớp jobs có '
+                'title "Backend Developer"/"DevOps Engineer" (catalogue '
+                'không có category literal "IT")');
+        expect(has(body, '.take(10)'), isTrue,
+            reason: 'Firestore arrayContainsAny cap ở 10 — expanded set '
+                'cuối cùng phải cắt về 10 token trước khi query');
+      },
+    );
   });
 
   group('_onJobs bỏ mock khi search (bonus fix kèm #11)', () {
