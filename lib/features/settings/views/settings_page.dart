@@ -194,6 +194,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       title: 'Dữ liệu',
       subtitle: 'Dữ liệu lưu cục bộ trên thiết bị này.',
       children: [
+        // The 3-word trailing "Xoá phiên chấm điểm" previously squeezed
+        // the title column into ~3 lines on 360dp phones ("Phiên chấm /
+        // điểm / đã lưu"). Switched to a trash IconButton so the title
+        // keeps the full remaining width — the destructive meaning stays
+        // obvious via the icon colour + confirm dialog.
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: Icon(Icons.auto_awesome_outlined, color: context.inkSoftColor),
@@ -203,7 +208,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ? 'Chưa có phiên chấm điểm nào.'
                 : '${s.savedSessions} phiên (tối đa 20).',
           ),
-          trailing: TextButton(
+          trailing: IconButton(
+            tooltip: 'Xoá phiên chấm điểm',
+            color: AppColors.danger,
             onPressed: s.savedSessions == 0 || s.clearing
                 ? null
                 : () => _confirmClear(
@@ -214,8 +221,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       onConfirm: vm.clearAiSessions,
                       successMessage: 'Đã xoá phiên chấm điểm.',
                     ),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-            child: const Text('Xoá phiên chấm điểm'),
+            icon: const Icon(Icons.delete_outline),
           ),
         ),
         const Divider(),
@@ -228,7 +234,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ? 'Chưa có từ khoá nào.'
                 : '${s.searchHistoryCount} từ khoá gần đây.',
           ),
-          trailing: TextButton(
+          trailing: IconButton(
+            tooltip: 'Xoá lịch sử tìm kiếm',
+            color: AppColors.danger,
             onPressed: s.searchHistoryCount == 0 || s.clearing
                 ? null
                 : () => _confirmClear(
@@ -238,8 +246,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       onConfirm: vm.clearSearchHistory,
                       successMessage: 'Đã xoá lịch sử tìm kiếm.',
                     ),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-            child: const Text('Xoá lịch sử tìm kiếm'),
+            icon: const Icon(Icons.delete_outline),
           ),
         ),
       ],
@@ -249,18 +256,29 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       icon: Icons.info_outline,
       title: 'Giới thiệu',
       children: [
-        AboutListTile(
-          icon: Icon(Icons.info_outline, color: context.inkSoftColor),
-          applicationName: 'JobHub',
-          applicationVersion: '1.0.0',
-          applicationIcon: const BrandLogo(compact: true, size: 28),
-          applicationLegalese: 'Nền tảng tuyển dụng Flutter — đồ án PRM393',
-          aboutBoxChildren: [
-            const SizedBox(height: 12),
-            Text('Nền tảng tuyển dụng Flutter — đồ án PRM393',
-                style: TextStyle(color: context.inkSoftColor, height: 1.5)),
-          ],
-          child: const Text('Về JobHub'),
+        // AboutListTile forces its own non-zero contentPadding, so the
+        // icon ended up ~16dp further right than the "Phiên bản" row
+        // below (which uses contentPadding: EdgeInsets.zero). Switched to
+        // a plain ListTile with matching zero padding so both leading
+        // icons share the same left edge; onTap opens the stock about
+        // dialog the way AboutListTile would have.
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.info_outline, color: context.inkSoftColor),
+          title: const Text('Về JobHub'),
+          trailing: Icon(Icons.chevron_right, color: context.inkMutedColor),
+          onTap: () => showAboutDialog(
+            context: context,
+            applicationName: 'JobHub',
+            applicationVersion: '1.0.0',
+            applicationIcon: const BrandLogo(compact: true, size: 28),
+            applicationLegalese: 'Nền tảng tuyển dụng Flutter — đồ án PRM393',
+            children: [
+              const SizedBox(height: 12),
+              Text('Nền tảng tuyển dụng Flutter — đồ án PRM393',
+                  style: TextStyle(color: context.inkSoftColor, height: 1.5)),
+            ],
+          ),
         ),
         ListTile(
           contentPadding: EdgeInsets.zero,
