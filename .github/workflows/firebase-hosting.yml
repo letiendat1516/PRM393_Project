@@ -1,0 +1,58 @@
+name: Firebase Hosting
+
+# Builds Flutter web and deploys to Firebase Hosting.
+# - push to main → live channel at https://jobhub-prm393-g3.web.app
+# - pull_request → preview channel URL commented back on the PR
+#
+# Required repository secret:
+#   FIREBASE_SERVICE_ACCOUNT_JOBHUB_PRM393_G3
+#   (JSON key for a service account with "Firebase Hosting Admin" role —
+#   generate via Firebase Console → Project settings → Service accounts →
+#   Generate new private key, then paste the JSON into Settings → Secrets.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Flutter web
+        # --release = tree-shaken + minified. Flutter 3.29+ auto-selects
+        # CanvasKit on desktop browsers and SkiaWASM on mobile, so the
+        # explicit --web-renderer flag is gone.
+        run: flutter build web --release
+
+      - name: Deploy to Firebase Hosting (live)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JOBHUB_PRM393_G3 }}
+          channelId: live
+          projectId: jobhub-prm393-g3
+
+      - name: Deploy to Firebase Hosting (preview)
+        if: github.event_name == 'pull_request'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JOBHUB_PRM393_G3 }}
+          projectId: jobhub-prm393-g3
+          expires: 7d
