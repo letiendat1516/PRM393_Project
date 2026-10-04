@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../../../shared/widgets/ui_primitives.dart';
 import 'adaptive_colors.dart';
 
-/// AppCard with an icon + title header; children stacked below.
+/// Flat section — icon-chip header + stacked children, no card chrome.
+///
+/// Dropped the `AppCard` wrapper in response to "các component đang bị bó
+/// trong container … bỏ nó ra thì sao": the heavy drop-shadow + border
+/// around every section made the settings page feel cramped and boxy.
+/// Sections now float directly on the Scaffold canvas; the icon chip +
+/// title are strong enough to keep each group readable, and the parent
+/// page spaces them with a soft divider instead of a card edge.
+///
+/// The `Material(type: transparency)` is kept because the children often
+/// include RadioListTile / SwitchListTile.adaptive / ListTile(onTap:),
+/// which paint ink splashes on the nearest Material ancestor.
 class SettingsSection extends StatelessWidget {
   const SettingsSection({
     super.key,
@@ -20,20 +30,10 @@ class SettingsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-      color: context.surfaceColor,
-      borderColor: context.borderMutedColor,
-      // AppCard renders its background via Container+BoxDecoration
-      // (DecoratedBox). ListTile-shaped children (RadioListTile,
-      // SwitchListTile.adaptive, ListTile(onTap:)) paint their ink
-      // splashes on the nearest Material ancestor — without this
-      // transparent Material, splashes would land on a Material above
-      // the DecoratedBox and get painted over by the card, triggering
-      // the "ListTile background color or ink splashes may be invisible"
-      // assertion every build.
-      child: Material(
-        type: MaterialType.transparency,
+    return Material(
+      type: MaterialType.transparency,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

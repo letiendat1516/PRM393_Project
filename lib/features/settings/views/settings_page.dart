@@ -291,6 +291,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ],
     );
 
+    // The cards used to bring their own border and shadow for section
+    // separation. Flat sections need an explicit visual break between
+    // groups so RadioListTiles / SwitchListTiles don't bleed into each
+    // other — a tall hairline divider plus generous vertical padding
+    // gives the "iOS Settings style" grouped look.
+    Widget sep() => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Divider(height: 1, thickness: 1, color: context.borderMutedColor),
+        );
+
     final body = isWide
         ? Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -299,9 +309,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 child: Column(
                   children: [
                     appearance,
-                    const SizedBox(height: 16),
+                    sep(),
                     language,
-                    const SizedBox(height: 16),
+                    sep(),
                     about,
                   ],
                 ),
@@ -311,9 +321,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 child: Column(
                   children: [
                     account,
-                    const SizedBox(height: 16),
+                    sep(),
                     notifications,
-                    const SizedBox(height: 16),
+                    sep(),
                     data,
                   ],
                 ),
@@ -323,15 +333,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         : Column(
             children: [
               appearance,
-              const SizedBox(height: 16),
+              sep(),
               language,
-              const SizedBox(height: 16),
+              sep(),
               notifications,
-              const SizedBox(height: 16),
+              sep(),
               account,
-              const SizedBox(height: 16),
+              sep(),
               data,
-              const SizedBox(height: 16),
+              sep(),
               about,
             ],
           );
