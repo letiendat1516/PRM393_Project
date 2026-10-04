@@ -57,7 +57,11 @@ class JobsSearchHeader extends StatelessWidget {
                 ),
                 children: [
                   TextSpan(
-                    text: '  ${Formatters.number(state.displayTotal)} việc làm',
+                    text: state.displayTotal != null
+                        ? '  ${Formatters.number(state.displayTotal!)} việc làm'
+                        : state.countFailed
+                            ? '  — việc làm'
+                            : '  đang đếm… việc làm',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w400,

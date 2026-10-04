@@ -488,9 +488,16 @@ void main() {
     });
 
     test('_fetchTotalCount: countPublicJobs nhận cùng facet với stream', () {
+      // Signature mở rộng thêm named `attempt` để hỗ trợ retry backoff khi
+      // Firestore `.count()` fail (trước đó bị catch nuốt im lặng — chính là
+      // một trong các nguyên nhân "tổng 30/60 thay vì 9800").
       final body = braceBody(
         vmSrc,
-        'Future<void> _fetchTotalCount(String keyword, JobsServerFilter filter) async {',
+        'Future<void> _fetchTotalCount(\n'
+        '    String keyword,\n'
+        '    JobsServerFilter filter, {\n'
+        '    int attempt = 0,\n'
+        '  }) async {',
       );
       expect(body, isNotEmpty, reason: 'trích được _fetchTotalCount');
       expect(has(body, 'city: filter.city,'), isTrue);
@@ -499,6 +506,12 @@ void main() {
       expect(has(body, 'categoryName: filter.categoryName,'), isTrue,
           reason: 'count aggregation phải cùng facet set với stream — chip '
               'category hoist cũng cần N việc làm chính xác');
+      expect(
+        has(body, 'debugPrint('),
+        isTrue,
+        reason: 'phải log fail (không nuốt silently) để biết vì sao .count() '
+            'không bao giờ đến; swallow cũ chính là nguyên nhân "tổng 30/60"',
+      );
     });
 
     test('_reconcileSubscription: so sánh filter + refetch count khi đổi', () {
@@ -518,9 +531,10 @@ void main() {
       expect(
         has(body, 'totalCount: filterChanged ? null : _sentinel,'),
         isTrue,
-        reason: 'bỏ chip facet phải reset totalCount (đối xứng '
-            'submitSearch/resetAll) — không thì header hiện số đếm của facet '
-            'cũ, sai vĩnh viễn nếu count fail',
+        reason: 'đổi facet phải NULL totalCount (UI hiện "đang đếm…") '
+            'KHÔNG preserve stale "9.800" trong khi .count() mới chưa về; '
+            'pagination (filterChanged=false) thì preserve qua sentinel — '
+            'đó chính là fix cho "lướt sang trang 3 thấy tổng = 60"',
       );
       final resub = pos(
         body,

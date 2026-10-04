@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
 import '../viewmodels/jobs_search_viewmodel.dart';
 
 /// Results toolbar: "Hiển thị X / Y việc làm", AI Matching button (gated to
@@ -26,6 +27,11 @@ class JobsResultsToolbar extends StatelessWidget {
     // (state.displayTotal is the server-reported count); with filters we
     // report the client-side count against the currently loaded chunk.
     final total = state.displayTotal;
+    final totalLabel = total != null
+        ? Formatters.number(total)
+        : state.countFailed
+            ? '—'
+            : 'đang đếm…';
     final enabled = state.canUseAiMatching;
     final tooltip = filtered > 100
         ? 'Lọc xuống ≤100 việc làm (hiện $filtered) để bật AI Matching'
@@ -49,7 +55,7 @@ class JobsResultsToolbar extends StatelessWidget {
                   color: AppColors.ink,
                 ),
               ),
-              TextSpan(text: ' / $total việc làm'),
+              TextSpan(text: ' / $totalLabel việc làm'),
             ],
           ),
         ),

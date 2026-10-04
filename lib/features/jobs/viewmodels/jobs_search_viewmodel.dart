@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
@@ -232,6 +233,7 @@ class JobsSearchState {
     this.loadedLimit = JobsRepository.defaultChunk,
     this.totalCount,
     this.isLoadingMore = false,
+    this.countFailed = false,
     this.serverCategoryCounts,
     this.serverCityCounts,
   });
@@ -266,6 +268,13 @@ class JobsSearchState {
   /// after a deep page-jump — used by the UI to disable rapid re-clicks.
   final bool isLoadingMore;
 
+  /// True after `_fetchTotalCount` has exhausted its retries without a
+  /// successful response (e.g. Firestore `.count()` misconfigured, missing
+  /// composite index, offline). The widgets switch from "đang đếm…" to a
+  /// terminal "— việc làm" placeholder so the UI doesn't hang on a loading
+  /// spinner forever when counting will never succeed.
+  final bool countFailed;
+
   /// Server-side `.count()` per categoryName for the current keyword,
   /// scoped by [JobsFacetCatalog.categories]. Null until the first
   /// aggregation lands; populated keys override the loaded-window counts
@@ -286,15 +295,16 @@ class JobsSearchState {
   );
   late final List<JobModel> filtered = _computeFiltered();
 
-  /// When a client-side-only filter / search is active the user only sees
-  /// matches inside the already-loaded window, so page count follows
-  /// [filtered]. For a server-side facet (and the no-filter default) we
-  /// trust [totalCount] so the pager still reads '… 274 275' for Hà Nội.
-  late final int totalPages = isServerSideFacet
-      ? (((totalCount ?? sourceJobs.length)) / pageSize).ceil()
-      : (hasSearchContext || hasActiveFilters)
-          ? (filtered.length / pageSize).ceil()
-          : (((totalCount ?? filtered.length)) / pageSize).ceil();
+  /// Pure client-side scope ⇒ page count follows the loaded window via
+  /// [filtered]. For every server-scoped case (server-side facet, keyword
+  /// alone, or no filter at all) [totalCount] is authoritative. Returns 0
+  /// while the server count is in flight — the UI hides the pager instead
+  /// of silently showing "trang 1 / 3" built from the 30-doc window.
+  late final int totalPages = _isClientSideScope
+      ? (filtered.length / pageSize).ceil()
+      : totalCount == null
+          ? 0
+          : (totalCount! / pageSize).ceil();
   late final int currentPage = totalPages == 0 ? 1 : page.clamp(1, totalPages);
   late final List<JobModel> pageJobs = filtered
       .skip((currentPage - 1) * pageSize)
@@ -335,15 +345,45 @@ class JobsSearchState {
         key == JobFilterKey.categories;
   }
 
-  /// displayTotal: filtered count while a client-side-only filter / search
-  /// is active, else the server-reported total — including the server-side
-  /// facet case where [totalCount] already matches '2.744 việc làm ở
-  /// Hà Nội' instead of the 30 docs cached locally.
-  int get displayTotal {
-    if (isServerSideFacet) return totalCount ?? sourceJobs.length;
-    if (hasSearchContext || hasActiveFilters) return filtered.length;
-    return totalCount ?? sourceJobs.length;
+  /// Pure client-side scope ⇒ visible slice of the loaded window
+  /// ([filtered.length]). Every other scope — server-side facet, keyword
+  /// alone, no filter — surfaces the Firestore `.count()` so the header
+  /// reads 9.800 / 2.744 / 899 instead of 30 → 60 → 90 climbing with the
+  /// loaded chunk. Null while the first count request is in flight; the
+  /// widgets render "đang đếm…" instead of substituting the loaded window.
+  int? get displayTotal {
+    if (_isClientSideScope) return filtered.length;
+    return totalCount;
   }
+
+  /// True when the current scope narrows jobs with filters the Firestore
+  /// stream does NOT see — a multi-chip combination, a non-hoistable chip
+  /// ('Ngành nghề khác' / 'Chưa cập nhật'), or the free-text locationQuery.
+  /// In that case [filtered.length] is the honest answer (bounded by the
+  /// loaded window, which is a known tradeoff of client-side filtering).
+  /// Everything else is scoped by Firestore + `.count()`, so [totalCount]
+  /// is authoritative — no fallback to the loaded window.
+  bool get _isClientSideScope {
+    if (isServerSideFacet) return false;
+    if (locationQuery.trim().isNotEmpty) return true;
+    // Must check _hasEffectiveFilters, NOT hasActiveFilters — the jobLevel
+    // chip is a display-only facet (see _computeFiltered: it's deliberately
+    // skipped). If jobLevel is the only chip set, filtered == sourceJobs
+    // == loaded window, and switching to "filtered.length" would
+    // reproduce the exact 30→60→90 climbing bug the fix is trying to kill.
+    if (!_hasEffectiveFilters) return false;
+    return true;
+  }
+
+  /// Filters that _computeFiltered actually narrows the result list by.
+  /// Excludes jobLevel (display-only; dropped in the useMemo at line ~449).
+  bool get _hasEffectiveFilters =>
+      filters.categories.isNotEmpty ||
+      filters.cities.isNotEmpty ||
+      filters.salary.isNotEmpty ||
+      filters.experience.isNotEmpty ||
+      filters.workMode.isNotEmpty ||
+      filters.jobType.isNotEmpty;
 
   /// AI Matching button gating: 0 < filtered ≤ 100.
   bool get canUseAiMatching =>
@@ -501,6 +541,7 @@ class JobsSearchState {
     int? loadedLimit,
     Object? totalCount = _sentinel,
     bool? isLoadingMore,
+    bool? countFailed,
     Object? serverCategoryCounts = _sentinel,
     Object? serverCityCounts = _sentinel,
   }) => JobsSearchState(
@@ -521,6 +562,7 @@ class JobsSearchState {
         ? this.totalCount
         : totalCount as int?,
     isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+    countFailed: countFailed ?? this.countFailed,
     serverCategoryCounts: identical(serverCategoryCounts, _sentinel)
         ? this.serverCategoryCounts
         : serverCategoryCounts as Map<String, int>?,
@@ -703,7 +745,15 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
   /// Runs the Firestore `.count()` aggregation for the active keyword +
   /// facet and stashes it in `state.totalCount`. The id guard drops late
   /// responses when the user has already changed the keyword again.
-  Future<void> _fetchTotalCount(String keyword, JobsServerFilter filter) async {
+  /// Callers null out `totalCount` BEFORE calling this so the UI shows
+  /// "đang đếm…"; on terminal failure after 2 retries we set
+  /// `countFailed: true` so widgets can switch to a "— việc làm"
+  /// terminal state instead of hanging on the loading placeholder.
+  Future<void> _fetchTotalCount(
+    String keyword,
+    JobsServerFilter filter, {
+    int attempt = 0,
+  }) async {
     final id = ++_countRequestId;
     try {
       final n = await repository.countPublicJobs(
@@ -714,9 +764,29 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
         categoryName: filter.categoryName,
       );
       if (!mounted || id != _countRequestId) return;
-      state = state.copyWith(totalCount: n);
-    } catch (_) {
-      // Count failure is non-fatal — fall back to the loaded-chunk size.
+      state = state.copyWith(totalCount: n, countFailed: false);
+    } catch (e, st) {
+      // Make the failure observable — the previous swallow-with-no-log
+      // meant a misconfigured .count() permanently showed 30/60 instead of
+      // the real total and nothing in the dev log told us why.
+      debugPrint(
+        'countPublicJobs failed for "$keyword" / $filter (attempt $attempt): $e\n$st',
+      );
+      if (!mounted || id != _countRequestId) return;
+      if (attempt < 2) {
+        // Short backoff retry; totalCount stays null so the UI keeps the
+        // "đang đếm…" placeholder.
+        final delay = Duration(milliseconds: 500 * (attempt + 1));
+        Future.delayed(delay, () {
+          if (!mounted || id != _countRequestId) return;
+          _fetchTotalCount(keyword, filter, attempt: attempt + 1);
+        });
+        return;
+      }
+      // Final failure: flip to the terminal UI state so widgets stop
+      // showing the loading placeholder and render "— việc làm" instead
+      // (vs. hanging on "đang đếm…" forever).
+      state = state.copyWith(countFailed: true);
     }
   }
 
@@ -807,10 +877,17 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     if (!mounted) return;
     final trimmed = state.keyword.trim();
     if (trimmed == _subscribedKeyword) return;
+    // Drop the old totalCount — it describes the previous keyword's
+    // scope and keeping it would flash the wrong total next to the new
+    // filter (e.g. "9.800 việc làm" on a 'java' query that really has
+    // ~800 matches). displayTotal now returns null → UI shows
+    // "đang đếm…" until the new .count() lands. Safe because displayTotal
+    // no longer falls back to sourceJobs.length.
     state = state.copyWith(
       loading: true,
       loadedLimit: JobsRepository.defaultChunk,
       totalCount: null,
+      countFailed: false,
       page: 1,
     );
     final filter = _serverFilter();
@@ -856,7 +933,10 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
       searchType: JobSearchType.both,
       page: 1,
       loadedLimit: JobsRepository.defaultChunk,
+      // Drop the previous scope's count — displayTotal returns null so
+      // the UI shows "đang đếm…" until the full-catalogue .count() lands.
       totalCount: null,
+      countFailed: false,
     );
     _resubscribe('', JobsRepository.defaultChunk, _noServerFilter);
     _fetchTotalCount('', _noServerFilter);
@@ -908,11 +988,13 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     state = state.copyWith(
       loadedLimit: target,
       isLoadingMore: true,
-      // Symmetric with submitSearch/resetAll: the old totalCount describes
-      // the previous facet's scope — drop it instead of flashing a stale
-      // '2.800 việc làm' header (permanently stale if the aggregation
-      // fails) until the fresh count lands.
+      // On a scope change (filter chip toggled), null out totalCount so
+      // the UI switches to "đang đếm…" instead of flashing the previous
+      // scope's number (e.g. 9.800 while the Hà Nội count is in flight).
+      // On a pure pagination bump (filterChanged=false) we keep totalCount
+      // via the sentinel — this is the fix for "lướt trang 3 ghi tổng 60".
       totalCount: filterChanged ? null : _sentinel,
+      countFailed: filterChanged ? false : state.countFailed,
     );
     _resubscribe(_subscribedKeyword, target, filter);
     if (filterChanged) {

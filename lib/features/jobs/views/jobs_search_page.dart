@@ -169,6 +169,7 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
       filters: state.filters,
       facets: state.facets,
       resultCount: state.displayTotal,
+      countFailed: state.countFailed,
       onToggle: _vm.toggleFilter,
       onReset: _reset,
     );
@@ -178,6 +179,7 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
             sidebar: filterSidebar,
             activeCount: state.filters.flatten().length,
             resultCount: state.displayTotal,
+            countFailed: state.countFailed,
           );
 
     final results = Column(

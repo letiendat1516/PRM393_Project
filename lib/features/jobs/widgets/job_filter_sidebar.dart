@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
 import '../viewmodels/jobs_search_viewmodel.dart';
 
 /// components/job/JobFilterSidebar.jsx — sticky card with 7 facet groups.
@@ -11,13 +12,19 @@ class JobFilterSidebar extends StatelessWidget {
     required this.filters,
     required this.facets,
     required this.resultCount,
+    required this.countFailed,
     required this.onToggle,
     required this.onReset,
   });
 
   final JobsFilters filters;
   final JobFacets facets;
-  final int resultCount;
+  /// Null while the Firestore `.count()` is in flight — the badge renders
+  /// "đang đếm… việc làm phù hợp" instead of substituting the loaded
+  /// window count. If [countFailed] is also true, the badge switches to
+  /// the terminal "— việc làm phù hợp" state instead of hanging.
+  final int? resultCount;
+  final bool countFailed;
   final void Function(JobFilterKey key, String value) onToggle;
   final VoidCallback onReset;
 
@@ -44,7 +51,11 @@ class JobFilterSidebar extends StatelessWidget {
               _header(),
               const SizedBox(height: 4),
               Text(
-                '$resultCount việc làm phù hợp',
+                resultCount != null
+                    ? '${Formatters.number(resultCount!)} việc làm phù hợp'
+                    : countFailed
+                        ? '— việc làm phù hợp'
+                        : 'đang đếm… việc làm phù hợp',
                 style: const TextStyle(fontSize: 12, color: AppColors.inkMuted),
               ),
               const SizedBox(height: 4),
@@ -197,11 +208,13 @@ class CollapsibleFilterSidebar extends StatefulWidget {
     required this.sidebar,
     required this.activeCount,
     required this.resultCount,
+    required this.countFailed,
   });
 
   final JobFilterSidebar sidebar;
   final int activeCount;
-  final int resultCount;
+  final int? resultCount;
+  final bool countFailed;
 
   @override
   State<CollapsibleFilterSidebar> createState() =>
@@ -263,7 +276,11 @@ class _CollapsibleFilterSidebarState extends State<CollapsibleFilterSidebar> {
                   ],
                   const Spacer(),
                   Text(
-                    '${widget.resultCount} việc làm phù hợp',
+                    widget.resultCount != null
+                        ? '${Formatters.number(widget.resultCount!)} việc làm phù hợp'
+                        : widget.countFailed
+                            ? '— việc làm phù hợp'
+                            : 'đang đếm… việc làm phù hợp',
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppColors.inkMuted,
