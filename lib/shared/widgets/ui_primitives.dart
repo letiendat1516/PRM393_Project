@@ -32,6 +32,16 @@ class AppCard extends StatelessWidget {
     final theme = Theme.of(context);
     final bg = color ?? theme.cardColor;
     final border = borderColor ?? theme.dividerColor;
+    // Wrap the child content in a transparent Material so any ListTile /
+    // RadioListTile / SwitchListTile placed inside the card has a
+    // Material ancestor for ink splashes. Without this, Flutter asserts
+    // "ListTile background color or ink splashes may be invisible" each
+    // build because the Container's BoxDecoration sits between the tile
+    // and the next Material up the tree.
+    final inner = Material(
+      type: MaterialType.transparency,
+      child: Padding(padding: padding, child: child),
+    );
     final box = Container(
       decoration: BoxDecoration(
         color: bg,
@@ -39,7 +49,7 @@ class AppCard extends StatelessWidget {
         border: Border.all(color: border),
         boxShadow: AppShadows.card,
       ),
-      child: Padding(padding: padding, child: child),
+      child: inner,
     );
     if (onTap == null && !hoverLift) return box;
     return _Hoverable(
@@ -54,7 +64,7 @@ class AppCard extends StatelessWidget {
           border: Border.all(color: hover ? AppColors.primary100 : border),
           boxShadow: hover ? AppShadows.elevated : AppShadows.card,
         ),
-        child: Padding(padding: padding, child: child),
+        child: inner,
       ),
     );
   }
