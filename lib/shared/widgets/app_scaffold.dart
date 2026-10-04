@@ -30,14 +30,13 @@ class AppScaffold extends StatelessWidget {
       showFooter: false,
       child: Column(
         children: [
-          Container(
+          // Title strip has no explicit background / divider — it sits on
+          // the Scaffold canvas, which lets the page read as one uniform
+          // surface instead of showing a white title → gray-strip → white
+          // card transition (the "vẫn còn màu xám" complaint). Cards keep
+          // their own border + shadow for separation.
+          Padding(
             padding: const EdgeInsets.symmetric(vertical: 20),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              border: Border(
-                bottom: BorderSide(color: theme.dividerColor),
-              ),
-            ),
             child: PageContainer(
               child: Row(
                 children: [
