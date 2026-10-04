@@ -47,8 +47,8 @@ function stripDiacritics(s) {
   }
   return out;
 }
-function tokenize(title, company = "") {
-  const text = `${title} ${company}`.toLowerCase();
+function tokenize(title, company = "", category = "") {
+  const text = `${title} ${company} ${category}`.toLowerCase();
   const stripped = stripDiacritics(text);
   const words = stripped
     .split(/[^a-z0-9+#.]+/)
@@ -134,7 +134,7 @@ for (const r of RAW) {
       status: "OPEN",
       isApproved: true,
       requiredSkills: [],
-      titleTokens: tokenize(r.job_title, r.company_name),
+      titleTokens: tokenize(r.job_title, r.company_name, r.category_name),
       applicationsCount: 0,
       source: "crawl",
       createdAt: Timestamp.fromDate(createdAt),

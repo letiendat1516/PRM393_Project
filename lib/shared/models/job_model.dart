@@ -384,7 +384,11 @@ class JobModel {
   /// prefixes of the first ~13 words crowded the entire company out, and
   /// `_searchTokens` taking the first 10 tokens on the read side would
   /// return 2–3-letter prefixes instead of the actual keyword).
-  static List<String> tokenize(String title, [String company = '']) {
+  static List<String> tokenize(
+    String title, [
+    String company = '',
+    String category = '',
+  ]) {
     List<String> wordsOf(String text) {
       final stripped = stripDiacritics(text.toLowerCase());
       return stripped
@@ -395,16 +399,24 @@ class JobModel {
 
     final titleWords = wordsOf(title);
     final companyWords = wordsOf(company);
+    final categoryWords = wordsOf(category);
     final out = <String>{};
-    // 1. Every full word from title + company.
+    // 1. Every full word from title + company + category (category included
+    // so an English category like "Backend Developer" surfaces the role words
+    // even when the job's own title is Vietnamese — fixes "IT returns 19
+    // jobs" because the Vietnamese titles never produced 'developer' /
+    // 'engineer' tokens the search box expands "IT" to).
     for (final w in titleWords) {
       out.add(w);
     }
     for (final w in companyWords) {
       out.add(w);
     }
+    for (final w in categoryWords) {
+      out.add(w);
+    }
     // 2. 2..6-char prefixes (for starts-with matches as the user types).
-    for (final w in [...titleWords, ...companyWords]) {
+    for (final w in [...titleWords, ...companyWords, ...categoryWords]) {
       for (var i = 2; i < w.length && i <= 6; i++) {
         out.add(w.substring(0, i));
       }
