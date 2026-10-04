@@ -28,54 +28,58 @@ class AppScaffold extends StatelessWidget {
     return PublicLayout(
       scrollable: false,
       showFooter: false,
-      child: Column(
-        children: [
-          // Title strip has no explicit background / divider — it sits on
-          // the Scaffold canvas, which lets the page read as one uniform
-          // surface instead of showing a white title → gray-strip → white
-          // card transition (the "vẫn còn màu xám" complaint). Cards keep
-          // their own border + shadow for separation.
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            child: PageContainer(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: theme.colorScheme.onSurface,
-                        letterSpacing: -0.3,
+      // Paint the full AppScaffold content with the theme surface so the
+      // page reads as ONE uniform white sheet from the title down to the
+      // bottom edge, instead of showing a white title → grey Scaffold
+      // canvas → white card sandwich (the "vẫn còn màu xám" complaint
+      // on the settings screen). Cards keep their own border + shadow
+      // for visual separation.
+      child: ColoredBox(
+        color: theme.colorScheme.surface,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: PageContainer(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.onSurface,
+                          letterSpacing: -0.3,
+                        ),
                       ),
                     ),
+                    ...?actions,
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: PageContainer(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 20),
+                      child: body,
+                    ),
                   ),
-                  ...?actions,
+                  if (floatingActionButton != null)
+                    Positioned(
+                      right: 24,
+                      bottom: 24,
+                      child: floatingActionButton!,
+                    ),
                 ],
               ),
             ),
-          ),
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: PageContainer(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 20),
-                    child: body,
-                  ),
-                ),
-                if (floatingActionButton != null)
-                  Positioned(
-                    right: 24,
-                    bottom: 24,
-                    child: floatingActionButton!,
-                  ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
