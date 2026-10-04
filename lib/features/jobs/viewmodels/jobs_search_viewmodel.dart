@@ -527,6 +527,12 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
   final PrefsService prefs;
   StreamSubscription<List<JobModel>>? _sub;
   String _subscribedKeyword = '';
+
+  /// Debounces live-search typing so every keystroke doesn't open a new
+  /// Firestore subscription. 350 ms matches the TopCV search bar's perceived
+  /// responsiveness without flooding the aggregation query.
+  Timer? _keywordDebounce;
+  static const Duration _keywordDebounceDelay = Duration(milliseconds: 350);
   int _subscribedLimit = 0;
   int _countRequestId = 0;
 
@@ -686,12 +692,25 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     final l = location ?? '';
     if (k == state.keyword && l == state.locationQuery) return;
     state = state.copyWith(keyword: k, locationQuery: l, page: 1);
+    // Deep-linked keywords (homepage SearchBar → /viec-lam?q=java) must hit
+    // Firestore immediately — otherwise the stream still returns the first
+    // 30 jobs of the whole catalogue and `_computeFiltered` only lands the
+    // handful of matches inside that window, which users reported as "sao
+    // tổng là 82 mà không phải 9800". Trigger the same resubscribe path as
+    // submitSearch, no debounce (URL change is already a user action).
+    _applyKeywordSubscription();
   }
 
   // ── search ───────────────────────────────────────────────────────────
   void setKeyword(String v) {
     if (v == state.keyword) return;
     state = state.copyWith(keyword: v, page: 1);
+    // Live-search as the user types: resubscribe to Firestore so the
+    // titleTokens arrayContainsAny filter widens the result set from the
+    // 30-doc window to the full 9800-doc catalogue. Debounced so the
+    // aggregation count doesn't fire on every keystroke.
+    _keywordDebounce?.cancel();
+    _keywordDebounce = Timer(_keywordDebounceDelay, _applyKeywordSubscription);
   }
 
   void setLocation(String v) {
@@ -704,26 +723,35 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     state = state.copyWith(searchType: t, page: 1);
   }
 
-  /// Form submit: remember the keyword (SharedPreferences lastSearchKeywords)
-  /// AND re-open the Firestore stream with the trimmed keyword so the
-  /// titleTokens `arrayContainsAny` filter kicks in. A keyword change
-  /// resets the loaded window back to the 3-page default and re-runs the
-  /// count aggregation so the pager header matches the new result set.
-  Future<void> submitSearch() async {
+  /// Reopens the Firestore stream with the current keyword + facet so the
+  /// result set reflects what the user actually typed. Shared between
+  /// [setKeyword] (debounced live-search), [applyQuery] (deep-linked URL
+  /// change) and [submitSearch] (form submit); the no-op guard
+  /// `trimmed == _subscribedKeyword` keeps same-keystroke rebuilds free.
+  void _applyKeywordSubscription() {
+    if (!mounted) return;
     final trimmed = state.keyword.trim();
-    if (trimmed != _subscribedKeyword) {
-      state = state.copyWith(
-        loading: true,
-        loadedLimit: JobsRepository.defaultChunk,
-        totalCount: null,
-        page: 1,
-      );
-      final filter = _serverFilter();
-      final target = _desiredLimit();
-      state = state.copyWith(loadedLimit: target);
-      _resubscribe(trimmed, target, filter);
-      _fetchTotalCount(trimmed, filter);
-    }
+    if (trimmed == _subscribedKeyword) return;
+    state = state.copyWith(
+      loading: true,
+      loadedLimit: JobsRepository.defaultChunk,
+      totalCount: null,
+      page: 1,
+    );
+    final filter = _serverFilter();
+    final target = _desiredLimit();
+    state = state.copyWith(loadedLimit: target);
+    _resubscribe(trimmed, target, filter);
+    _fetchTotalCount(trimmed, filter);
+  }
+
+  /// Form submit: remember the keyword (SharedPreferences lastSearchKeywords)
+  /// AND re-open the Firestore stream so titleTokens arrayContainsAny kicks
+  /// in. Cancels any pending debounce so the user's explicit "Tìm" tap is
+  /// honoured immediately instead of waiting for the 350ms timer.
+  Future<void> submitSearch() async {
+    _keywordDebounce?.cancel();
+    _applyKeywordSubscription();
     await prefs.pushSearchKeyword(state.keyword);
   }
 
@@ -831,6 +859,7 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
 
   @override
   void dispose() {
+    _keywordDebounce?.cancel();
     _sub?.cancel();
     super.dispose();
   }
