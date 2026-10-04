@@ -28,58 +28,56 @@ class AppScaffold extends StatelessWidget {
     return PublicLayout(
       scrollable: false,
       showFooter: false,
-      // Paint the full AppScaffold content with the theme surface so the
-      // page reads as ONE uniform white sheet from the title down to the
-      // bottom edge, instead of showing a white title → grey Scaffold
-      // canvas → white card sandwich (the "vẫn còn màu xám" complaint
-      // on the settings screen). Cards keep their own border + shadow
-      // for visual separation.
-      child: ColoredBox(
-        color: theme.colorScheme.surface,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: PageContainer(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: theme.colorScheme.onSurface,
-                          letterSpacing: -0.3,
-                        ),
+      child: Column(
+        children: [
+          // Title strip has no explicit background / divider — it sits on
+          // the Scaffold canvas (slate-50) so the whole page reads as one
+          // soft wash. Previously tried a solid-white surface wrapper
+          // here, but every card's drop-shadow then painted hard-edged
+          // rings against pure white ("nhìn trông thô và cứng"); the
+          // slate canvas lets shadows feather out naturally like
+          // Material 3 defaults.
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: PageContainer(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: theme.colorScheme.onSurface,
+                        letterSpacing: -0.3,
                       ),
                     ),
-                    ...?actions,
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: PageContainer(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 20),
-                      child: body,
-                    ),
                   ),
-                  if (floatingActionButton != null)
-                    Positioned(
-                      right: 24,
-                      bottom: 24,
-                      child: floatingActionButton!,
-                    ),
+                  ...?actions,
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: PageContainer(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 20),
+                    child: body,
+                  ),
+                ),
+                if (floatingActionButton != null)
+                  Positioned(
+                    right: 24,
+                    bottom: 24,
+                    child: floatingActionButton!,
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
