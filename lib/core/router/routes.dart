@@ -58,6 +58,7 @@ class AppRoutes {
   static const adminSystemConfig = '/admin/system-configurations';
   static const adminAiLogs = '/ai-logs';
   static const adminAiStats = '/admin/ai-stats';
+  static const adminComposeNotification = '/admin/notifications/compose';
 
   // ── Shared (authenticated) ────────────────────────────────────────────
   static const notifications = '/notifications';

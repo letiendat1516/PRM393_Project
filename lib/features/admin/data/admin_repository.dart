@@ -185,6 +185,123 @@ class AdminRepository {
     });
   }
 
+  // ── Admin → user notifications (compose + broadcast) ─────────────────
+  //
+  // Three audience modes:
+  //   • everyone — fan-out one doc per user (batched)
+  //   • by role  — same fan-out, scoped by the users.role field
+  //   • specific uid — one doc write
+  //
+  // Fan-out writes one notifications/{id} doc per recipient so the shared
+  // `notifications` collection stays the single query path
+  // (watchForUser filters by recipientId + createdAt desc). A composite
+  // index on (recipientId, createdAt) already exists.
+
+  /// Compact DTO wrapping an admin-authored notification payload so the
+  /// repository doesn't take 4 positional strings every time.
+  // (local record alias)
+
+  /// Look up `users/{uid}` by email (case-insensitive). Returns null when
+  /// the email isn't registered — the caller surfaces a validation error
+  /// instead of blowing up on an empty audience.
+  Future<UserModel?> findUserByEmail(String email) async {
+    final e = email.trim().toLowerCase();
+    if (e.isEmpty) return null;
+    final snap = await _refs
+        .users()
+        .where('email', isEqualTo: e)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    return snap.docs.first.data();
+  }
+
+  /// Send one notification to a single [recipient].
+  Future<void> sendNotificationToUser({
+    required UserModel recipient,
+    required String title,
+    required String message,
+  }) async {
+    _validateComposeInput(title: title, message: message);
+    final ref = _refs.db.collection(FirestoreRefs.colNotifications).doc();
+    final notif = NotificationModel(
+      notificationId: ref.id,
+      recipientId: recipient.uid,
+      recipientRole: recipient.role,
+      type: NotificationType.system,
+      title: title.trim(),
+      message: message.trim(),
+      data: const {'source': 'admin'},
+    );
+    await ref.set(notif.toJson());
+  }
+
+  /// Broadcast one notification to every user (optionally scoped by
+  /// [role]). Fans out one notifications/{id} doc per recipient so each
+  /// user's inbox query still works without special-casing a "global"
+  /// doc. Returns the number of recipients written to. Batched at the
+  /// Firestore limit (500) with a 50-doc safety margin.
+  Future<int> broadcastNotification({
+    required String title,
+    required String message,
+    UserRole? role,
+  }) async {
+    _validateComposeInput(title: title, message: message);
+    final t = title.trim();
+    final m = message.trim();
+
+    Query<UserModel> q = _refs.users();
+    if (role != null) {
+      q = q.where('role', isEqualTo: userRoleToWire(role));
+    }
+    // Also skip blocked accounts — writing to them is pointless since
+    // isActive=false users are signed out on next listen.
+    q = q.where('isActive', isEqualTo: true);
+    final snap = await q.get();
+    if (snap.docs.isEmpty) return 0;
+
+    const batchLimit = 450;
+    var written = 0;
+    final notifCol = _refs.db.collection(FirestoreRefs.colNotifications);
+
+    for (var i = 0; i < snap.docs.length; i += batchLimit) {
+      final slice = snap.docs.skip(i).take(batchLimit);
+      final batch = _refs.db.batch();
+      for (final userDoc in slice) {
+        final user = userDoc.data();
+        final notifRef = notifCol.doc();
+        final notif = NotificationModel(
+          notificationId: notifRef.id,
+          recipientId: user.uid,
+          recipientRole: user.role,
+          type: NotificationType.system,
+          title: t,
+          message: m,
+          data: const {'source': 'admin', 'broadcast': true},
+        );
+        batch.set(notifRef, notif.toJson());
+        written++;
+      }
+      await batch.commit();
+    }
+    return written;
+  }
+
+  void _validateComposeInput({required String title, required String message}) {
+    if (title.trim().isEmpty) {
+      throw const Failure.validation('Vui lòng nhập tiêu đề thông báo.');
+    }
+    if (title.trim().length > 120) {
+      throw const Failure.validation('Tiêu đề không được vượt quá 120 ký tự.');
+    }
+    if (message.trim().isEmpty) {
+      throw const Failure.validation('Vui lòng nhập nội dung thông báo.');
+    }
+    if (message.trim().length > 1000) {
+      throw const Failure.validation('Nội dung không được vượt quá 1000 ký tự.');
+    }
+  }
+
   // ── Catalog: categories ───────────────────────────────────────────────
 
   Stream<List<CategoryModel>> watchCategories() =>

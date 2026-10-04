@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin/views/admin_compose_notification_page.dart';
 import '../../features/admin/views/admin_dashboard_page.dart';
 import '../../features/admin/views/admin_employers_page.dart';
 import '../../features/admin/views/admin_pending_jobs_page.dart';
@@ -188,6 +189,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: AppRoutes.adminAiLogs, builder: (_, _) => const AiLogsPage()),
       GoRoute(path: AppRoutes.adminAiStats, builder: (_, _) => const AiStatsPage()),
+      GoRoute(
+        path: AppRoutes.adminComposeNotification,
+        builder: (_, _) => const AdminComposeNotificationPage(),
+      ),
 
       // Shared (authenticated)
       GoRoute(path: AppRoutes.notifications, builder: (_, _) => const NotificationsPage()),

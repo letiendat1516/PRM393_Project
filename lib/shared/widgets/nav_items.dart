@@ -116,6 +116,8 @@ class NavItems {
             NavSection('Hệ thống', [
               NavItem('Cấu hình hệ thống', AppRoutes.adminSystemConfig,
                   icon: Icons.settings_outlined),
+              NavItem('Soạn thông báo', AppRoutes.adminComposeNotification,
+                  icon: Icons.campaign_outlined),
             ]),
             NavSection('Cá nhân', [
               NavItem('Thông báo', AppRoutes.notifications,

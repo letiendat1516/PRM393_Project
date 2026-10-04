@@ -29,6 +29,8 @@ class AdminDashboardPage extends ConsumerWidget {
         Icons.category_outlined, AppRoutes.adminCatalog),
     _QuickLink('Cấu hình hệ thống', 'Quy tắc dùng chung của hệ thống JobHub.',
         Icons.settings_outlined, AppRoutes.adminSystemConfig),
+    _QuickLink('Soạn thông báo', 'Gửi thông báo hệ thống tới một user, một role, hoặc toàn bộ nền tảng.',
+        Icons.campaign_outlined, AppRoutes.adminComposeNotification),
     _QuickLink('Thống kê AI Logs', 'Hiệu năng, token, xu hướng 7 ngày, Gemini API key.',
         Icons.bar_chart_outlined, AppRoutes.adminAiStats),
     _QuickLink('AI Prompt Logs', 'Prompt / response từng lượt gọi AI.',

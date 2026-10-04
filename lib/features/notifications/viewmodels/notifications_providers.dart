@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers.dart';
+import '../../../core/utils/enums.dart';
 import '../../../core/utils/failure.dart';
 import '../../../shared/models/notification_model.dart';
 import '../../auth/viewmodels/current_user_provider.dart';
@@ -25,7 +26,8 @@ final unreadCountProvider = Provider<int>((ref) {
   return list.where((n) => !n.isRead).length;
 });
 
-/// Filter tabs on the Notification Center.
+/// Unread-only toggle on the Notification Center. Separate from the
+/// category tabs so the user can combine "chỉ chưa đọc" with any category.
 enum NotificationFilter { all, unread }
 
 extension NotificationFilterLabel on NotificationFilter {
@@ -38,13 +40,53 @@ extension NotificationFilterLabel on NotificationFilter {
 final notificationFilterProvider =
     StateProvider.autoDispose<NotificationFilter>((_) => NotificationFilter.all);
 
-/// Stream filtered by the active tab (keeps loading/error of the source).
-final filteredNotificationsProvider = Provider.autoDispose<AsyncValue<List<NotificationModel>>>((ref) {
+/// TopCV-style horizontal category tabs on top of the notification list.
+/// Each tab maps to a subset of [NotificationType] (see [matches]).
+enum NotificationCategory { all, jobs, applicationStatus, connections, system }
+
+extension NotificationCategoryMeta on NotificationCategory {
+  String get label => switch (this) {
+        NotificationCategory.all => 'Tất cả',
+        NotificationCategory.jobs => 'Việc làm',
+        NotificationCategory.applicationStatus => 'Trạng thái CV',
+        NotificationCategory.connections => 'Kết nối',
+        NotificationCategory.system => 'Hệ thống',
+      };
+
+  /// Mirror of the Settings → Loại thông báo buckets so the tab filter
+  /// agrees with the per-type toggle a user already configured.
+  bool matches(NotificationType type) {
+    switch (this) {
+      case NotificationCategory.all:
+        return true;
+      case NotificationCategory.jobs:
+        return type == NotificationType.jobApproved ||
+            type == NotificationType.jobRejected;
+      case NotificationCategory.applicationStatus:
+        return type == NotificationType.applicationStatus;
+      case NotificationCategory.connections:
+        return type == NotificationType.newApplication;
+      case NotificationCategory.system:
+        return type == NotificationType.system ||
+            type == NotificationType.employerVerified;
+    }
+  }
+}
+
+final notificationCategoryProvider =
+    StateProvider.autoDispose<NotificationCategory>(
+        (_) => NotificationCategory.all);
+
+/// Stream filtered by the active tab + unread flag (keeps loading/error).
+final filteredNotificationsProvider =
+    Provider.autoDispose<AsyncValue<List<NotificationModel>>>((ref) {
   final filter = ref.watch(notificationFilterProvider);
+  final category = ref.watch(notificationCategoryProvider);
   return ref.watch(notificationsStreamProvider).whenData(
-        (list) => filter == NotificationFilter.unread
-            ? list.where((n) => !n.isRead).toList()
-            : list,
+        (list) => list.where((n) {
+          if (filter == NotificationFilter.unread && n.isRead) return false;
+          return category.matches(n.type);
+        }).toList(),
       );
 });
 
