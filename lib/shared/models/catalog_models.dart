@@ -75,6 +75,11 @@ class SystemConfig {
   static const keyDefaultDeadlineDays = 'DEFAULT_DEADLINE_DAYS';
   static const keyRequireJobApproval = 'REQUIRE_JOB_APPROVAL';
   static const keyGeminiApiKey = 'GEMINI_API_KEY';
+  static const keyDeepseekApiKey = 'DEEPSEEK_API_KEY';
+  static const keyZaiApiKey = 'ZAI_API_KEY';
+  /// CSV order of providers to try, from first to fallback. Values from
+  /// {'gemini','deepseek','zai'}. Default: 'gemini,deepseek,zai'.
+  static const keyAiProviderOrder = 'AI_PROVIDER_ORDER';
 
   Object get parsedValue => switch (valueType) {
         'NUMBER' => num.tryParse(configValue) ?? 0,

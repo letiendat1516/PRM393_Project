@@ -15,6 +15,7 @@ import '../viewmodels/ai_stats_viewmodel.dart';
 import '../widgets/admin_page_shell.dart';
 import '../widgets/ai_stats_cards.dart';
 import '../widgets/calls_per_day_chart.dart';
+import '../widgets/ai_providers_panel.dart';
 import '../widgets/gemini_key_panel.dart';
 import '../widgets/stat_card.dart';
 
@@ -32,10 +33,17 @@ class AiStatsPage extends ConsumerWidget {
     final lg = width >= kAdminLgBreakpoint;
 
     SystemConfig? storedKey;
+    String? deepseekKey;
+    String? zaiKey;
+    String? providerOrder;
     for (final c in configs.valueOrNull ?? const <SystemConfig>[]) {
-      if (c.configKey == SystemConfig.keyGeminiApiKey) {
-        storedKey = c;
-        break;
+      if (c.configKey == SystemConfig.keyGeminiApiKey) storedKey = c;
+      if (c.configKey == SystemConfig.keyDeepseekApiKey) {
+        deepseekKey = c.configValue;
+      }
+      if (c.configKey == SystemConfig.keyZaiApiKey) zaiKey = c.configValue;
+      if (c.configKey == SystemConfig.keyAiProviderOrder) {
+        providerOrder = c.configValue;
       }
     }
 
@@ -65,6 +73,12 @@ class AiStatsPage extends ConsumerWidget {
         const SizedBox(height: 24),
         // API key manager — rendered above the loading/error/empty/data chain
         GeminiKeyPanel(stored: storedKey),
+        const SizedBox(height: 16),
+        AiProvidersPanel(
+          deepseekKey: deepseekKey,
+          zaiKey: zaiKey,
+          providerOrder: providerOrder,
+        ),
         const SizedBox(height: 24),
         ...stats.when(
           loading: () => const [

@@ -55,6 +55,38 @@ class AppConfig {
   );
   static const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 
+  // ── DeepSeek (OpenAI-compatible) ──────────────────────────────────────
+  //
+  // DeepSeek exposes an OpenAI-shaped /v1/chat/completions endpoint, so
+  // one JSON body works for both DeepSeek and z.ai (below). Model names
+  // and keys differ; auth is Bearer.
+  static const String deepseekBaseUrl = String.fromEnvironment(
+    'DEEPSEEK_BASE_URL',
+    defaultValue: 'https://api.deepseek.com',
+  );
+  static const String deepseekModel = String.fromEnvironment(
+    'DEEPSEEK_MODEL',
+    defaultValue: 'deepseek-chat',
+  );
+  static const String deepseekApiKey =
+      String.fromEnvironment('DEEPSEEK_API_KEY');
+
+  // ── z.ai (Zhipu GLM, OpenAI-compatible) ───────────────────────────────
+  static const String zaiBaseUrl = String.fromEnvironment(
+    'ZAI_BASE_URL',
+    defaultValue: 'https://open.bigmodel.cn/api/paas/v4',
+  );
+  static const String zaiModel = String.fromEnvironment(
+    'ZAI_MODEL',
+    defaultValue: 'glm-4-flash',
+  );
+  static const String zaiApiKey = String.fromEnvironment('ZAI_API_KEY');
+
+  /// CSV order of providers to try (first → fallback). Values in
+  /// {'gemini','deepseek','zai'}. Admin can override in Firestore via
+  /// systemConfigurations/AI_PROVIDER_ORDER.
+  static const String aiProviderOrderDefault = 'gemini,deepseek,zai';
+
   /// Admin accounts cannot self-register (AuthService.js). For the course demo
   /// an account registered with one of these emails is promoted to admin.
   /// Override: `--dart-define=ADMIN_EMAILS=a@x.com,b@y.com`.

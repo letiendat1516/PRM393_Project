@@ -11,23 +11,47 @@ import '../../utils/failure.dart';
 
 typedef AiLogSink = Future<void> Function(AiMatchingLog log);
 typedef ApiKeyResolver = Future<String?> Function();
+typedef ProviderOrderResolver = Future<List<String>> Function();
 
-/// Port of backend/src/ai/{deepseekClient,promptBuilder,aiLogger}.js against
-/// Gemini's OpenAI-compatible endpoint (same request/response contract).
+/// Multi-provider AI client (keeps the `GeminiService` name because many
+/// imports already depend on it, but now orchestrates Gemini + DeepSeek +
+/// z.ai). Prompt-building + log sink are shared; transport differs per
+/// provider:
+///   • Gemini — native REST (:generateContent)
+///   • DeepSeek — OpenAI-compatible /v1/chat/completions
+///   • z.ai (Zhipu GLM) — OpenAI-compatible /chat/completions
+///
+/// `chatCompletion` tries providers in [resolveProviderOrder] order; a
+/// transient failure (503/429) on one triggers the next. A missing key
+/// transparently skips its provider so partial configurations still work.
 class GeminiService {
   GeminiService({
     required this.resolveApiKey,
     required this.logSink,
+    this.resolveDeepseekKey,
+    this.resolveZaiKey,
+    this.resolveProviderOrder,
     http.Client? client,
     this.baseUrl = AppConfig.geminiBaseUrl,
     this.model = AppConfig.geminiModel,
+    this.deepseekBaseUrl = AppConfig.deepseekBaseUrl,
+    this.deepseekModel = AppConfig.deepseekModel,
+    this.zaiBaseUrl = AppConfig.zaiBaseUrl,
+    this.zaiModel = AppConfig.zaiModel,
   }) : _client = client ?? http.Client();
 
   final ApiKeyResolver resolveApiKey;
+  final ApiKeyResolver? resolveDeepseekKey;
+  final ApiKeyResolver? resolveZaiKey;
+  final ProviderOrderResolver? resolveProviderOrder;
   final AiLogSink logSink;
   final http.Client _client;
   final String baseUrl;
   final String model;
+  final String deepseekBaseUrl;
+  final String deepseekModel;
+  final String zaiBaseUrl;
+  final String zaiModel;
 
   static const taskResumeExtraction = 'resume_extraction';
   static const taskJobMatching = 'job_matching';
@@ -42,35 +66,125 @@ class GeminiService {
   // The caller supplies OpenAI-style messages ([{role: system/user/assistant,
   // content: ...}]) and this method translates them to Gemini's native shape
   // so the prompt-builder code keeps its OpenAI parity verbatim.
-  /// Fallback models tried in order when the primary one returns 503
-  /// `UNAVAILABLE` (Gemini-side overload — the user's "AI 503" screenshot).
-  /// Each entry has its own quota pool so a flash variant usually still
-  /// answers while the latest alias is throttled.
+  /// Gemini fallback models tried after the primary Gemini model fails
+  /// with 503. Each model has an independent quota pool.
   static const _fallbackModels = <String>[
     'gemini-2.5-flash',
     'gemini-1.5-flash-latest',
     'gemini-1.5-flash',
   ];
 
+  /// Default provider order when the admin hasn't configured one.
+  static const _defaultOrder = <String>['gemini', 'deepseek', 'zai'];
+
   Future<({String content, int tokensIn, int tokensOut})> chatCompletion(
     List<Map<String, String>> messages, {
     Duration timeout = const Duration(seconds: 120),
     int? maxTokens,
   }) async {
-    final key = await resolveApiKey();
-    if (key == null || key.isEmpty) {
+    final order = await _resolveOrder();
+    Failure? lastFailure;
+    var anyKeyFound = false;
+
+    for (final provider in order) {
+      try {
+        final result = await _tryProvider(
+          provider,
+          messages,
+          timeout: timeout,
+          maxTokens: maxTokens,
+        );
+        return result;
+      } on _KeyMissing {
+        // Provider not configured — silently try the next one.
+        continue;
+      } on Failure catch (f) {
+        anyKeyFound = true;
+        lastFailure = f;
+        // Only move to the next provider on transient overload. A 400 /
+        // 401 / 403 means that specific provider is misconfigured — try
+        // the next one too (don't let a bad DeepSeek key kill z.ai).
+        continue;
+      }
+    }
+
+    if (!anyKeyFound && lastFailure == null) {
       throw const Failure(
-        'Chưa cấu hình Gemini API key. Admin vào Cấu hình hệ thống → GEMINI_API_KEY.',
+        'Chưa cấu hình API key cho AI nào. Admin vào Cấu hình hệ thống → '
+        'GEMINI_API_KEY / DEEPSEEK_API_KEY / ZAI_API_KEY.',
         status: 503,
         code: 'AI_KEY_MISSING',
       );
     }
+    throw lastFailure ??
+        const Failure('AI không phản hồi.', status: 503, code: 'AI_HTTP');
+  }
 
-    // Try the configured model first, falling back through a short list of
-    // sibling flash variants when (and only when) the server returns 503
-    // UNAVAILABLE. Each model gets up to 3 attempts with 1-, 3-, 6-second
-    // backoff so a transient overload clears without the user seeing the
-    // raw "AI 503" JSON every click.
+  Future<List<String>> _resolveOrder() async {
+    List<String> order;
+    try {
+      order = (await resolveProviderOrder?.call()) ?? const [];
+    } catch (_) {
+      order = const [];
+    }
+    if (order.isEmpty) order = _defaultOrder;
+    // Dedupe + whitelist.
+    final seen = <String>{};
+    final out = <String>[];
+    for (final p in order) {
+      final norm = p.trim().toLowerCase();
+      if (!_defaultOrder.contains(norm)) continue;
+      if (seen.add(norm)) out.add(norm);
+    }
+    return out.isEmpty ? _defaultOrder : out;
+  }
+
+  Future<({String content, int tokensIn, int tokensOut})> _tryProvider(
+    String provider,
+    List<Map<String, String>> messages, {
+    required Duration timeout,
+    int? maxTokens,
+  }) async {
+    switch (provider) {
+      case 'gemini':
+        return _tryGemini(messages, timeout: timeout, maxTokens: maxTokens);
+      case 'deepseek':
+        return _tryOpenAiCompatible(
+          messages,
+          providerLabel: 'DeepSeek',
+          keyResolver: resolveDeepseekKey,
+          baseUrlOverride: deepseekBaseUrl,
+          modelOverride: deepseekModel,
+          chatPath: '/v1/chat/completions',
+          timeout: timeout,
+          maxTokens: maxTokens,
+        );
+      case 'zai':
+        return _tryOpenAiCompatible(
+          messages,
+          providerLabel: 'z.ai',
+          keyResolver: resolveZaiKey,
+          baseUrlOverride: zaiBaseUrl,
+          modelOverride: zaiModel,
+          // Zhipu's base already includes /paas/v4, so the chat path is
+          // just /chat/completions. DeepSeek uses /v1 as a prefix.
+          chatPath: '/chat/completions',
+          timeout: timeout,
+          maxTokens: maxTokens,
+        );
+      default:
+        throw _KeyMissing(provider);
+    }
+  }
+
+  Future<({String content, int tokensIn, int tokensOut})> _tryGemini(
+    List<Map<String, String>> messages, {
+    required Duration timeout,
+    int? maxTokens,
+  }) async {
+    final key = await resolveApiKey();
+    if (key == null || key.isEmpty) throw _KeyMissing('gemini');
+
     final attemptModels = <String>[
       model,
       for (final m in _fallbackModels)
@@ -89,26 +203,104 @@ class GeminiService {
           );
         } on Failure catch (f) {
           lastFailure = f;
-          // Retry inside the same model only for transient-overload codes.
           final isOverload = f.status == 503 || f.status == 429;
-          if (!isOverload) break; // real error → surface immediately
+          if (!isOverload) break;
           if (attempt < 2) {
             final backoffSec = 1 << (attempt + 1); // 2, 4
             await Future<void>.delayed(Duration(seconds: backoffSec));
           }
-        } catch (e) {
-          lastFailure = Failure.from(e);
-          break; // non-Failure exception (network, timeout) → let outer handle
         }
       }
-      // Advance to the next fallback model only if we're still seeing
-      // overload; any other failure means retrying a different model
-      // wouldn't help and the user has already waited long enough.
       if (lastFailure == null) continue;
       if (lastFailure.status != 503 && lastFailure.status != 429) break;
     }
     throw lastFailure ??
         const Failure('AI không phản hồi.', status: 503, code: 'AI_HTTP');
+  }
+
+  /// Shared OpenAI-compatible transport for DeepSeek + z.ai. Translates
+  /// the (role, content) list straight into {messages:[...]} and parses
+  /// `choices[0].message.content` + `usage.*`.
+  Future<({String content, int tokensIn, int tokensOut})> _tryOpenAiCompatible(
+    List<Map<String, String>> messages, {
+    required String providerLabel,
+    required ApiKeyResolver? keyResolver,
+    required String baseUrlOverride,
+    required String modelOverride,
+    required String chatPath,
+    required Duration timeout,
+    int? maxTokens,
+  }) async {
+    if (keyResolver == null) throw _KeyMissing(providerLabel.toLowerCase());
+    final key = await keyResolver();
+    if (key == null || key.isEmpty) throw _KeyMissing(providerLabel.toLowerCase());
+
+    final body = <String, dynamic>{
+      'model': modelOverride,
+      'messages': [
+        for (final m in messages)
+          {'role': m['role'] ?? 'user', 'content': m['content'] ?? ''},
+      ],
+      'temperature': 0,
+      // Both DeepSeek and GLM-4 accept the OpenAI `response_format` hint
+      // for JSON mode — matches the Gemini `responseMimeType` behaviour.
+      'response_format': {'type': 'json_object'},
+      // ignore: use_null_aware_elements
+      if (maxTokens != null) 'max_tokens': maxTokens,
+    };
+
+    // 2-attempt retry on transient overload only.
+    Failure? lastFailure;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final res = await _client
+            .post(
+              Uri.parse('$baseUrlOverride$chatPath'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $key',
+              },
+              body: jsonEncode(body),
+            )
+            .timeout(timeout);
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          final friendly = switch (res.statusCode) {
+            503 =>
+              '$providerLabel đang quá tải (503). Thử lại sau ít phút.',
+            429 =>
+              '$providerLabel báo vượt quota (429). Chờ ít phút hoặc đổi key.',
+            _ => '$providerLabel ${res.statusCode}: ${res.body}',
+          };
+          throw Failure(friendly,
+              status: res.statusCode, code: 'AI_HTTP');
+        }
+        final json =
+            jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        final choices = json['choices'] as List? ?? const [];
+        var content = '';
+        if (choices.isNotEmpty) {
+          final c = choices.first as Map;
+          final msg = (c['message'] as Map?) ?? const {};
+          content = msg['content']?.toString() ?? '';
+        }
+        final usage = json['usage'] as Map? ?? const {};
+        return (
+          content: content,
+          tokensIn: ((usage['prompt_tokens'] ?? 0) as num).toInt(),
+          tokensOut: ((usage['completion_tokens'] ?? 0) as num).toInt(),
+        );
+      } on Failure catch (f) {
+        lastFailure = f;
+        final isOverload = f.status == 503 || f.status == 429;
+        if (!isOverload) break;
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+      }
+    }
+    throw lastFailure ??
+        Failure('$providerLabel không phản hồi.',
+            status: 503, code: 'AI_HTTP');
   }
 
   Future<({String content, int tokensIn, int tokensOut})> _postOnce(
@@ -530,4 +722,12 @@ Job: Marketing Executive, skills=[Content,SEO,Analytics,Customer insight], min_e
       // logging must never fail the AI call
     }
   }
+}
+
+/// Internal signal: a provider has no API key configured. Caught by
+/// [GeminiService.chatCompletion] and translated into "skip this
+/// provider, try the next one" rather than a user-visible error.
+class _KeyMissing implements Exception {
+  _KeyMissing(this.provider);
+  final String provider;
 }

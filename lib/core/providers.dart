@@ -55,6 +55,23 @@ final geminiServiceProvider = Provider<GeminiService>((ref) {
       if (AppConfig.geminiApiKey.isNotEmpty) return AppConfig.geminiApiKey;
       return configs.getString(SystemConfig.keyGeminiApiKey);
     },
+    resolveDeepseekKey: () async {
+      if (AppConfig.deepseekApiKey.isNotEmpty) return AppConfig.deepseekApiKey;
+      return configs.getString(SystemConfig.keyDeepseekApiKey);
+    },
+    resolveZaiKey: () async {
+      if (AppConfig.zaiApiKey.isNotEmpty) return AppConfig.zaiApiKey;
+      return configs.getString(SystemConfig.keyZaiApiKey);
+    },
+    resolveProviderOrder: () async {
+      final raw = (await configs.getString(SystemConfig.keyAiProviderOrder)) ??
+          AppConfig.aiProviderOrderDefault;
+      return raw
+          .split(',')
+          .map((p) => p.trim().toLowerCase())
+          .where((p) => p.isNotEmpty)
+          .toList();
+    },
     logSink: ref.watch(aiLogSinkProvider),
   );
 });
