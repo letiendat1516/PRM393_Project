@@ -73,22 +73,29 @@ class AppConfig {
 
   // ── z.ai (international GLM endpoint, OpenAI-compatible) ──────────────
   //
-  // Base URL per https://docs.z.ai/api-reference/llm/chat-completion — the
-  // `open.bigmodel.cn` host is the Zhipu China API which uses separate
-  // keys. Keys issued on z.ai console only work against `api.z.ai` host.
-  // Full URL hit by the client: {baseUrl}/chat/completions.
+  // Two base URLs exist on `api.z.ai`:
+  //   • /api/paas/v4         — standard GLM chat, pay-per-token billing.
+  //                           Models: glm-4.5-flash, glm-4.6, glm-5.x…
+  //   • /api/coding/paas/v4  — Coding Plan subscription (Claude-Code-style
+  //                           routing). Models: glm-5.3, glm-5.3-flash,
+  //                           glm-5.2, glm-image, cogvideox-3.
   //
-  // Model default = `glm-4.5-flash` (cheap tier recommended by the
-  // quickstart for high-volume use). Override to `glm-4.6` for the
-  // flagship or any other model from the z.ai catalog via
-  // `--dart-define=ZAI_MODEL=...` or systemConfigurations/AI_PROVIDER_ORDER.
+  // Default matches the Zed IDE Coding Plan config most students use for
+  // this course since the Coding Plan subscription includes the GLM-5.x
+  // family and avoids per-call overages. If your key is a standard
+  // per-token one, override with `--dart-define=ZAI_BASE_URL=
+  // https://api.z.ai/api/paas/v4` and `ZAI_MODEL=glm-4.5-flash`.
+  //
+  // Keys issued on `open.bigmodel.cn` (Zhipu China) are NOT valid against
+  // either `api.z.ai` host — mint a new key at
+  // https://z.ai/manage-apikey/apikey-list first.
   static const String zaiBaseUrl = String.fromEnvironment(
     'ZAI_BASE_URL',
-    defaultValue: 'https://api.z.ai/api/paas/v4',
+    defaultValue: 'https://api.z.ai/api/coding/paas/v4',
   );
   static const String zaiModel = String.fromEnvironment(
     'ZAI_MODEL',
-    defaultValue: 'glm-4.5-flash',
+    defaultValue: 'glm-5.3-flash',
   );
   static const String zaiApiKey = String.fromEnvironment('ZAI_API_KEY');
 

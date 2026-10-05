@@ -62,10 +62,10 @@ class AiProviderSpec {
 
   static const zai = AiProviderSpec(
     id: 'zai',
-    label: 'z.ai API key (Zhipu GLM)',
+    label: 'z.ai API key (Coding Plan)',
     configKey: SystemConfig.keyZaiApiKey,
     envValue: AppConfig.zaiApiKey,
-    hint: 'Dán z.ai API key (từ api.z.ai, không phải open.bigmodel.cn)',
+    hint: 'Dán z.ai API key (Coding Plan — glm-5.3-flash). KHÔNG dùng key từ open.bigmodel.cn.',
     consoleUrl: 'https://z.ai/manage-apikey/apikey-list',
     icon: Icons.hub_outlined,
     showPrefix: '',
