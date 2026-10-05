@@ -86,6 +86,39 @@ class JobsRepository {
     );
   }
 
+  /// One-shot fetch that mirrors [watchPublicJobs]'s filter chain but
+  /// returns a plain Future (not a stream) and is capped at [limit].
+  /// Used by the AI Matching flow so the sheet sees the full matching
+  /// subset (e.g. all 82 "java" jobs on the catalog) instead of just
+  /// the 20-40 doc window the infinite-scroll list has loaded so far.
+  Future<List<JobModel>> fetchForAiMatching({
+    String keyword = '',
+    String? city,
+    WorkMode? workMode,
+    JobType? jobType,
+    String? categoryName,
+    int limit = 100,
+  }) async {
+    if (_isUnmatchableKeyword(keyword)) return const [];
+    final tokens = _searchTokens(keyword);
+    Query<JobModel> q = _publicQuery();
+    if (tokens.isNotEmpty) {
+      q = q.where('titleTokens', arrayContainsAny: tokens);
+    }
+    q = _applyFacetFilter(
+      q,
+      city: city,
+      workMode: workMode,
+      jobType: jobType,
+      categoryName: categoryName,
+    );
+    final snap = await q
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return snap.docs.map((d) => d.data()).toList();
+  }
+
   /// Chains EVERY provided equality facet onto [query] in order
   /// `city > workMode > jobType > categoryName`. Any subset of the four
   /// may be combined — the matching composite index must exist in

@@ -977,6 +977,24 @@ class JobsSearchViewModel extends StateNotifier<JobsSearchState> {
     _resubscribe(_subscribedKeyword, next, _subscribedFilter);
   }
 
+  /// One-shot fetch for the AI Matching sheet — returns up to [limit]
+  /// jobs matching the CURRENT keyword + hoisted facet, independent of
+  /// the loaded-window size the user has scrolled through. Fixes the
+  /// user-visible mismatch where "82 việc làm" in the header disagreed
+  /// with "Sẽ chấm 40 việc làm" in the AI sheet (sheet saw only the
+  /// loaded window of sourceJobs).
+  Future<List<JobModel>> fetchJobsForAiMatching({int limit = 100}) async {
+    final filter = _serverFilter();
+    return repository.fetchForAiMatching(
+      keyword: state.keyword.trim(),
+      city: filter.city,
+      workMode: filter.workMode,
+      jobType: filter.jobType,
+      categoryName: filter.categoryName,
+      limit: limit,
+    );
+  }
+
   /// Desired Firestore stream limit for the current state.
   ///
   /// Always based on the current page + a 2-page prefetch buffer, rounded

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/router/routes.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/models/job_model.dart';
@@ -118,8 +119,21 @@ class _JobsSearchPageState extends ConsumerState<JobsSearchPage> {
 
   /// AIScoreModal onScored: the sheet resolves with `jobId → {ai, sql}` as
   /// soon as a scoring run finished in it (even when closed with 'Đóng').
+  /// Pulls the full matching subset from Firestore (not just the loaded
+  /// window) so the sheet's "Sẽ chấm N việc làm" header matches the
+  /// jobs page total — fixes the "82 total → 40 jobs scored" mismatch.
   Future<void> _openAiMatching() async {
-    final jobs = ref.read(jobsSearchProvider).filtered;
+    List<JobModel> jobs;
+    try {
+      jobs = await _vm.fetchJobsForAiMatching(
+        limit: AppConfig.aiMaxJobsPerScoring,
+      );
+    } catch (_) {
+      // Fallback to the loaded window if the one-shot fetch fails (e.g.
+      // offline) — the sheet still works, just scoped to what's loaded.
+      jobs = ref.read(jobsSearchProvider).filtered;
+    }
+    if (!mounted) return;
     final scores = await showAiMatchingSheet(context, jobs: jobs);
     if (!mounted) return;
     if (scores != null) _vm.applyScores(scores);
