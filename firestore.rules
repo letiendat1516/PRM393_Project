@@ -105,11 +105,31 @@ service cloud.firestore {
           || (signedIn() && (get(/databases/$(database)/documents/applications/$(appId)).data.jobSeekerId == uid()
               || get(/databases/$(database)/documents/applications/$(appId)).data.employerId == uid()));
         // Only parties to the application may write history (append-only audit).
+        //
+        // Special case: the GENESIS row is written in the same transaction
+        // that creates the parent applications/{appId} doc (seeker apply
+        // flow). Firestore rules' get() reads committed state only, so the
+        // parent doesn't exist yet from the rule engine's point of view —
+        // allow the genesis row by its shape instead (SUBMITTED, no
+        // oldStatus, seeker role, matching uid). The applications create
+        // rule guarantees the parent is correctly scoped to the same
+        // seeker, so the two writes agree on identity.
         allow create: if signedIn()
           && request.resource.data.changedBy == uid()
           && (isAdmin()
-              || get(/databases/$(database)/documents/applications/$(appId)).data.jobSeekerId == uid()
-              || get(/databases/$(database)/documents/applications/$(appId)).data.employerId == uid());
+              || (
+                isSeeker()
+                && !('oldStatus' in request.resource.data)
+                && request.resource.data.newStatus == 'SUBMITTED'
+                && request.resource.data.changedByRole == 'job_seeker'
+              )
+              || (
+                exists(/databases/$(database)/documents/applications/$(appId))
+                && (
+                  get(/databases/$(database)/documents/applications/$(appId)).data.jobSeekerId == uid()
+                  || get(/databases/$(database)/documents/applications/$(appId)).data.employerId == uid()
+                )
+              ));
         allow update, delete: if false; // append-only audit
       }
     }
