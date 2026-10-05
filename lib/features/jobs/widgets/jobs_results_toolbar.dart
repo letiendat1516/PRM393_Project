@@ -33,9 +33,15 @@ class JobsResultsToolbar extends StatelessWidget {
             ? '—'
             : 'đang đếm…';
     final enabled = state.canUseAiMatching;
-    final tooltip = filtered > 100
-        ? 'Lọc xuống ≤100 việc làm (hiện $filtered) để bật AI Matching'
-        : 'Chấm điểm CV với AI DeepSeek';
+    // Tooltip uses the REAL matching count (server .count() = total)
+    // so "lọc xuống ≤100" is honest when the catalog has 9800 jobs and
+    // only 20 are in the loaded window.
+    final tooltipCount = total ?? filtered;
+    final tooltip = tooltipCount > 100
+        ? 'Lọc xuống ≤100 việc làm (hiện ${Formatters.number(tooltipCount)}) để bật AI Matching'
+        : (total == null
+            ? 'Đang đếm số việc làm phù hợp…'
+            : 'Chấm điểm CV với AI');
 
     return Wrap(
       alignment: WrapAlignment.spaceBetween,
@@ -66,7 +72,7 @@ class JobsResultsToolbar extends StatelessWidget {
               message: tooltip,
               child: _AiMatchingButton(
                 enabled: enabled,
-                needsFilter: filtered > 100,
+                needsFilter: tooltipCount > 100,
                 scored: state.hasScores && filtered <= 100,
                 onPressed: enabled ? onAiMatching : null,
               ),

@@ -234,12 +234,32 @@ void main() {
       expect(s.effectiveSort, 'posted');
     });
 
-    test('canUseAiMatching: 0 < filtered ≤ 100', () {
-      expect(JobsSearchState(sourceJobs: many(5)).canUseAiMatching, isTrue);
-      expect(JobsSearchState(sourceJobs: many(101)).canUseAiMatching, isFalse);
+    test('canUseAiMatching: real server count ≤ 100 (không phải loaded window)', () {
+      // Server scope + totalCount = 5 ≤ 100 → bật được.
       expect(
-        JobsSearchState(sourceJobs: many(5), keyword: 'không-match').canUseAiMatching,
+        JobsSearchState(sourceJobs: many(5), totalCount: 5).canUseAiMatching,
+        isTrue,
+      );
+      // Server scope + totalCount = 101 → block, dù loaded window chỉ 5.
+      // Chính là bug cũ: canUseAiMatching chỉ check filtered.length nên
+      // 9800 jobs với 20 doc loaded vẫn bật được button → user chấm 20
+      // trong khi header hiển thị 9800.
+      expect(
+        JobsSearchState(sourceJobs: many(5), totalCount: 101).canUseAiMatching,
         isFalse,
+      );
+      // Totalcount chưa load xong (null) → disable (phòng race).
+      expect(JobsSearchState(sourceJobs: many(5)).canUseAiMatching, isFalse);
+      // Client-side scope (locationQuery) + filtered rỗng → disable.
+      expect(
+        JobsSearchState(
+          sourceJobs: many(5),
+          keyword: 'không-match',
+          locationQuery: 'Chưa',
+          totalCount: 9800,
+        ).canUseAiMatching,
+        isFalse,
+        reason: 'client-filter rỗng → không có job nào để chấm',
       );
     });
   });

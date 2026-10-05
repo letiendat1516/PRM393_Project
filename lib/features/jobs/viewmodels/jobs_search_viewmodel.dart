@@ -402,9 +402,17 @@ class JobsSearchState {
       filters.workMode.isNotEmpty ||
       filters.jobType.isNotEmpty;
 
-  /// AI Matching button gating: 0 < filtered ≤ 100.
-  bool get canUseAiMatching =>
-      filtered.isNotEmpty && filtered.length <= AppConfig.aiMaxJobsPerScoring;
+  /// AI Matching button gating: 0 < [displayTotal] ≤ 100. We check the
+  /// REAL matching count (server .count() when scoped server-side,
+  /// filtered.length when scoped client-side) instead of
+  /// filtered.length alone, so a 9800-job catalog with no filter can't
+  /// enable the button just because only 20 docs are loaded locally.
+  /// User has to filter down to ≤100 before AI Matching runs.
+  bool get canUseAiMatching {
+    final n = displayTotal;
+    if (n == null) return false; // count still loading / failed
+    return n > 0 && n <= AppConfig.aiMaxJobsPerScoring;
+  }
 
   List<SortOption> get sortOptions => [
     for (final o in AppConfig.sortOptions)
