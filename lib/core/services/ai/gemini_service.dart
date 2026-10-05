@@ -235,6 +235,13 @@ class GeminiService {
     final key = await keyResolver();
     if (key == null || key.isEmpty) throw _KeyMissing(providerLabel.toLowerCase());
 
+    // z.ai Coding Plan (glm-5.x family) emits `reasoning_content` on every
+    // response — even with `thinking.type = disabled` the model burns 5-15
+    // tokens on reasoning before the real content, and
+    // `response_format.json_object` is not accepted on
+    // /api/coding/paas/v4. DeepSeek honours both, so we only switch the
+    // body shape when talking to z.ai.
+    final isZai = providerLabel == 'z.ai';
     final body = <String, dynamic>{
       'model': modelOverride,
       'messages': [
@@ -242,9 +249,8 @@ class GeminiService {
           {'role': m['role'] ?? 'user', 'content': m['content'] ?? ''},
       ],
       'temperature': 0,
-      // Both DeepSeek and GLM-4 accept the OpenAI `response_format` hint
-      // for JSON mode — matches the Gemini `responseMimeType` behaviour.
-      'response_format': {'type': 'json_object'},
+      if (!isZai) 'response_format': {'type': 'json_object'},
+      if (isZai) 'thinking': {'type': 'disabled'},
       // ignore: use_null_aware_elements
       if (maxTokens != null) 'max_tokens': maxTokens,
     };
@@ -282,6 +288,11 @@ class GeminiService {
           final c = choices.first as Map;
           final msg = (c['message'] as Map?) ?? const {};
           content = msg['content']?.toString() ?? '';
+          // z.ai glm-5.x wraps JSON in markdown code fences ("```json\n
+          // {...}\n```") even when told not to; strip them so the
+          // downstream `jsonDecode(content)` in scoreJobs / extractResume
+          // still works.
+          content = _stripMarkdownFence(content);
         }
         final usage = json['usage'] as Map? ?? const {};
         return (
@@ -473,13 +484,19 @@ class GeminiService {
       throw Failure('Chưa cấu hình $providerLabel API key.',
           status: 503, code: 'AI_KEY_MISSING');
     }
+    // z.ai glm-5.x spends 5-15 tokens on reasoning before producing
+    // content even with thinking disabled, so an 8-token budget keeps
+    // bouncing with finish_reason=length (looks like a key failure in
+    // the admin test banner). 64 is enough for a visible "ping ok" tail.
+    final isZai = providerLabel == 'z.ai';
     final body = <String, dynamic>{
       'model': modelOverride,
       'messages': [
         {'role': 'user', 'content': 'ping'},
       ],
       'temperature': 0,
-      'max_tokens': 8,
+      'max_tokens': isZai ? 64 : 8,
+      if (isZai) 'thinking': {'type': 'disabled'},
     };
     final res = await _client
         .post(
@@ -495,6 +512,24 @@ class GeminiService {
       throw Failure('$providerLabel ${res.statusCode}: ${res.body}',
           status: res.statusCode, code: 'AI_HTTP');
     }
+  }
+
+  /// Strip `` ```json\n{...}\n``` `` (or any ` ``` ` code fence) around
+  /// a JSON blob the model returned despite the response_format /
+  /// system-prompt hints. z.ai GLM-5.x almost always wraps; DeepSeek
+  /// does it sometimes on reasoning-heavy requests.
+  static String _stripMarkdownFence(String s) {
+    var t = s.trim();
+    if (!t.startsWith('```')) return t;
+    // Drop the opening fence line (``` or ```json)
+    final firstNl = t.indexOf('\n');
+    if (firstNl < 0) return t;
+    t = t.substring(firstNl + 1);
+    // Drop the closing ``` (and any trailing text after it, which
+    // models never produce but be defensive).
+    final closeIdx = t.lastIndexOf('```');
+    if (closeIdx >= 0) t = t.substring(0, closeIdx);
+    return t.trim();
   }
 
   // ── Prompts (verbatim port of backend/src/ai/promptBuilder.js) ───────
