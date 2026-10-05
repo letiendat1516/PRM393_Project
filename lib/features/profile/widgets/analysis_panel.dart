@@ -32,21 +32,32 @@ class AnalysisPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          // Wrap instead of Row so title / date / "Xem chi tiết" reflow
+          // onto a second line on narrow phones instead of overflowing by
+          // ~26px (previous Row + Spacer forced everything to one line).
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Icon(AppIcons.of('sparkles'), size: 13, color: AppColors.primary),
-              const SizedBox(width: 6),
-              const Text('Kết quả trích xuất bằng AI',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary)),
-              const Spacer(),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(AppIcons.of('sparkles'),
+                      size: 13, color: AppColors.primary),
+                  const SizedBox(width: 6),
+                  const Text('Kết quả trích xuất bằng AI',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary)),
+                ],
+              ),
               if (data.analyzedAt != null)
                 Text(Formatters.localeDateTime(data.analyzedAt!),
-                    style: const TextStyle(fontSize: 12, color: AppColors.inkMuted)),
-              if (onOpenDetail != null) ...[
-                const SizedBox(width: 8),
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.inkMuted)),
+              if (onOpenDetail != null)
                 InkWell(
                   onTap: onOpenDetail,
                   child: const Text('Xem chi tiết →',
@@ -55,7 +66,6 @@ class AnalysisPanel extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           color: AppColors.primary)),
                 ),
-              ],
             ],
           ),
           const SizedBox(height: 8),

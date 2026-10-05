@@ -85,6 +85,14 @@ class AppTheme {
           borderSide: BorderSide(color: c, width: w),
         );
 
+    // Disable the default route-push slide/fade on every platform —
+    // user reported the animations were giving them eye-strain. Native
+    // navigation now swaps pages instantly.
+    final noTransitions = PageTransitionsTheme(builders: {
+      for (final p in TargetPlatform.values)
+        p: const _NoTransitionsBuilder(),
+    });
+
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -95,6 +103,7 @@ class AppTheme {
       cardColor: surface,
       dividerColor: borderMuted,
       splashFactory: InkRipple.splashFactory,
+      pageTransitionsTheme: noTransitions,
       appBarTheme: AppBarTheme(
         backgroundColor: surface,
         foregroundColor: ink,
@@ -206,4 +215,20 @@ class AppTheme {
       ),
     );
   }
+}
+
+/// Instant page swap — no slide / fade. Used across every TargetPlatform in
+/// AppTheme._build so the route transitions can't flicker the user's eyes.
+class _NoTransitionsBuilder extends PageTransitionsBuilder {
+  const _NoTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) =>
+      child;
 }
