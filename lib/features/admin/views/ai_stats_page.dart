@@ -16,7 +16,6 @@ import '../widgets/admin_page_shell.dart';
 import '../widgets/ai_stats_cards.dart';
 import '../widgets/calls_per_day_chart.dart';
 import '../widgets/ai_providers_panel.dart';
-import '../widgets/gemini_key_panel.dart';
 import '../widgets/stat_card.dart';
 
 /// Thống kê AI Logs (/admin/ai-stats) — aggregates over the last 200 logs.
@@ -32,19 +31,15 @@ class AiStatsPage extends ConsumerWidget {
     final width = MediaQuery.sizeOf(context).width;
     final lg = width >= kAdminLgBreakpoint;
 
-    SystemConfig? storedKey;
-    String? deepseekKey;
-    String? zaiKey;
-    String? providerOrder;
+    SystemConfig? geminiKey;
+    SystemConfig? deepseekKey;
+    SystemConfig? zaiKey;
+    SystemConfig? providerOrder;
     for (final c in configs.valueOrNull ?? const <SystemConfig>[]) {
-      if (c.configKey == SystemConfig.keyGeminiApiKey) storedKey = c;
-      if (c.configKey == SystemConfig.keyDeepseekApiKey) {
-        deepseekKey = c.configValue;
-      }
-      if (c.configKey == SystemConfig.keyZaiApiKey) zaiKey = c.configValue;
-      if (c.configKey == SystemConfig.keyAiProviderOrder) {
-        providerOrder = c.configValue;
-      }
+      if (c.configKey == SystemConfig.keyGeminiApiKey) geminiKey = c;
+      if (c.configKey == SystemConfig.keyDeepseekApiKey) deepseekKey = c;
+      if (c.configKey == SystemConfig.keyZaiApiKey) zaiKey = c;
+      if (c.configKey == SystemConfig.keyAiProviderOrder) providerOrder = c;
     }
 
     return AdminPageShell(
@@ -71,14 +66,17 @@ class AiStatsPage extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 24),
-        // API key manager — rendered above the loading/error/empty/data chain
-        GeminiKeyPanel(stored: storedKey),
+        // Three provider panels + the fallback-order editor, same UX for
+        // each (current masked key / source badge / Kiểm tra / Lưu & dùng
+        // / Xoá key). Rendered above the stats loader so admins can wire
+        // things up before any charts load.
+        AiKeyPanel(spec: AiProviderSpec.gemini, stored: geminiKey),
         const SizedBox(height: 16),
-        AiProvidersPanel(
-          deepseekKey: deepseekKey,
-          zaiKey: zaiKey,
-          providerOrder: providerOrder,
-        ),
+        AiKeyPanel(spec: AiProviderSpec.deepseek, stored: deepseekKey),
+        const SizedBox(height: 16),
+        AiKeyPanel(spec: AiProviderSpec.zai, stored: zaiKey),
+        const SizedBox(height: 16),
+        AiProviderOrderPanel(stored: providerOrder),
         const SizedBox(height: 24),
         ...stats.when(
           loading: () => const [

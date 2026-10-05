@@ -35,7 +35,34 @@ class SystemConfigRepository {
       valueType: 'STRING',
       description: 'API key Gemini dùng cho AI phân tích CV / chấm điểm (chỉ admin thấy).',
     ),
+    const SystemConfig(
+      configKey: SystemConfig.keyDeepseekApiKey,
+      configValue: '',
+      valueType: 'STRING',
+      description: 'API key DeepSeek (fallback khi Gemini quá tải).',
+    ),
+    const SystemConfig(
+      configKey: SystemConfig.keyZaiApiKey,
+      configValue: '',
+      valueType: 'STRING',
+      description: 'API key z.ai (Zhipu GLM, fallback khi Gemini + DeepSeek quá tải).',
+    ),
+    const SystemConfig(
+      configKey: SystemConfig.keyAiProviderOrder,
+      configValue: 'gemini,deepseek,zai',
+      valueType: 'STRING',
+      description: 'Thứ tự thử các nhà cung cấp AI (CSV, giá trị: gemini / deepseek / zai).',
+    ),
   ];
+
+  /// String keys allowed to carry an empty value ("clear override"). The
+  /// generic empty-string validator in [update] blocks it otherwise.
+  static const _emptyAllowedStringKeys = {
+    SystemConfig.keyGeminiApiKey,
+    SystemConfig.keyDeepseekApiKey,
+    SystemConfig.keyZaiApiKey,
+    SystemConfig.keyAiProviderOrder,
+  };
 
   Stream<List<SystemConfig>> watchAll() =>
       _refs.systemConfigurations().snapshots().map((s) => s.docs.map((d) => d.data()).toList());
@@ -75,9 +102,17 @@ class SystemConfigRepository {
   }
 
   /// PATCH /system-configurations/:key (admin). Validates per valueType.
+  /// If the doc hasn't been seeded yet, upserts a STRING default so admins
+  /// can save new AI-provider keys the first time without hitting the
+  /// "Không tìm thấy cấu hình hệ thống" error from before ensureDefaults
+  /// ran. The upsert matches the shape of the entry in [defaults] so
+  /// future seedings are no-ops.
   Future<void> update(String key, String value, {String? updatedBy}) async {
-    final existing = await get(key);
-    if (existing == null) throw const Failure.notFound('Không tìm thấy cấu hình hệ thống.');
+    SystemConfig? existing = await get(key);
+    existing ??= _defaultFor(key);
+    if (existing == null) {
+      throw const Failure.notFound('Không tìm thấy cấu hình hệ thống.');
+    }
     final v = value.trim();
     switch (existing.valueType) {
       case 'NUMBER':
@@ -92,7 +127,7 @@ class SystemConfigRepository {
         }
         break;
       default:
-        if (key != SystemConfig.keyGeminiApiKey && v.isEmpty) {
+        if (!_emptyAllowedStringKeys.contains(key) && v.isEmpty) {
           throw const Failure.validation('Giá trị cấu hình không được để trống.');
         }
     }
@@ -105,6 +140,13 @@ class SystemConfigRepository {
         updatedBy: updatedBy,
       ),
     );
+  }
+
+  static SystemConfig? _defaultFor(String key) {
+    for (final c in defaults) {
+      if (c.configKey == key) return c;
+    }
+    return null;
   }
 
   /// Seeds the 3 backend keys (+ GEMINI_API_KEY) if missing.

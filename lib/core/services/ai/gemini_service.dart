@@ -392,19 +392,108 @@ class GeminiService {
   /// prompt is enough to exercise auth + model availability without
   /// burning quota.
   Future<({bool valid, int? status, int latencyMs, String? error})> testKey() async {
+    return testProviderKey('gemini', null);
+  }
+
+  /// Per-provider "ping" check used by the admin AI key panels. When
+  /// [keyOverride] is non-null it bypasses the resolver chain so the
+  /// admin can validate a freshly-typed key BEFORE saving it to
+  /// Firestore. Returns a status / error pair the UI banner renders.
+  Future<({bool valid, int? status, int latencyMs, String? error})>
+      testProviderKey(String provider, String? keyOverride) async {
     final sw = Stopwatch()..start();
     try {
-      await chatCompletion(
-        [
-          {'role': 'user', 'content': 'Respond with {}'}
-        ],
-        timeout: const Duration(seconds: 20),
-        maxTokens: 8,
+      switch (provider) {
+        case 'gemini':
+          final k = keyOverride?.trim();
+          final r = await _postOnce(
+            [
+              {'role': 'user', 'content': 'Respond with {}'}
+            ],
+            modelOverride: model,
+            key: (k == null || k.isEmpty)
+                ? (await resolveApiKey()) ?? ''
+                : k,
+            timeout: const Duration(seconds: 20),
+            maxTokens: 8,
+          );
+          // success — unused response but we need to touch the record.
+          r.tokensIn;
+        case 'deepseek':
+          await _oneShotOpenAi(
+            providerLabel: 'DeepSeek',
+            baseUrlOverride: deepseekBaseUrl,
+            modelOverride: deepseekModel,
+            chatPath: '/v1/chat/completions',
+            key: (keyOverride?.trim().isNotEmpty ?? false)
+                ? keyOverride!.trim()
+                : (await resolveDeepseekKey?.call()) ?? '',
+          );
+        case 'zai':
+          await _oneShotOpenAi(
+            providerLabel: 'z.ai',
+            baseUrlOverride: zaiBaseUrl,
+            modelOverride: zaiModel,
+            chatPath: '/chat/completions',
+            key: (keyOverride?.trim().isNotEmpty ?? false)
+                ? keyOverride!.trim()
+                : (await resolveZaiKey?.call()) ?? '',
+          );
+        default:
+          throw Failure('Provider không hỗ trợ: $provider',
+              status: 400, code: 'BAD_PROVIDER');
+      }
+      return (
+        valid: true,
+        status: 200,
+        latencyMs: sw.elapsedMilliseconds,
+        error: null
       );
-      return (valid: true, status: 200, latencyMs: sw.elapsedMilliseconds, error: null);
     } catch (e) {
       final f = Failure.from(e);
-      return (valid: false, status: f.status, latencyMs: sw.elapsedMilliseconds, error: f.message);
+      return (
+        valid: false,
+        status: f.status,
+        latencyMs: sw.elapsedMilliseconds,
+        error: f.message
+      );
+    }
+  }
+
+  /// Minimal one-shot OpenAI-compatible call used by [testProviderKey]
+  /// so the ping doesn't go through the full retry + fallback chain.
+  Future<void> _oneShotOpenAi({
+    required String providerLabel,
+    required String baseUrlOverride,
+    required String modelOverride,
+    required String chatPath,
+    required String key,
+  }) async {
+    if (key.isEmpty) {
+      throw Failure('Chưa cấu hình $providerLabel API key.',
+          status: 503, code: 'AI_KEY_MISSING');
+    }
+    final body = <String, dynamic>{
+      'model': modelOverride,
+      'messages': [
+        {'role': 'user', 'content': 'ping'},
+      ],
+      'temperature': 0,
+      'max_tokens': 8,
+    };
+    final res = await _client
+        .post(
+          Uri.parse('$baseUrlOverride$chatPath'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $key',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Failure('$providerLabel ${res.statusCode}: ${res.body}',
+          status: res.statusCode, code: 'AI_HTTP');
     }
   }
 
