@@ -137,7 +137,7 @@ class _AiMatchingSheetState extends ConsumerState<AiMatchingSheet> {
                     const Text('AI Matching',
                         style: TextStyle(
                             fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.ink)),
-                    Text('Chấm điểm $n việc làm với CV bằng Gemini AI',
+                    Text('Chấm điểm $n việc làm với CV bằng AI',
                         style: const TextStyle(fontSize: 14, color: AppColors.inkSoft)),
                   ],
                 ),

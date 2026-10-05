@@ -114,8 +114,6 @@ class _CvPickerState extends ConsumerState<CvPicker> {
         ),
         const SizedBox(height: 20),
         if (state.mode == CvMode.preset) _presetSection(state) else _uploadSection(state),
-        const SizedBox(height: 20),
-        _methodSection(state),
       ],
     );
   }
@@ -131,7 +129,7 @@ class _CvPickerState extends ConsumerState<CvPicker> {
           _link(context, 'đăng nhập', () => context.go(AppRoutes.login)),
           const TextSpan(text: ' hoặc chọn '),
           const TextSpan(text: 'Tải lên CV mới', style: TextStyle(fontWeight: FontWeight.w600)),
-          const TextSpan(text: ' để dán nội dung CV và chấm điểm bằng SQL.'),
+          const TextSpan(text: ' để dán nội dung CV và chấm điểm.'),
         ])),
       );
     }
@@ -268,44 +266,6 @@ class _CvPickerState extends ConsumerState<CvPicker> {
     );
   }
 
-  // ── Scoring method ───────────────────────────────────────────────────
-  Widget _methodSection(AiMatchingState state) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'PHƯƠNG THỨC CHẤM ĐIỂM',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: AppColors.inkMuted,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            for (final m in ScoringMethod.values) ...[
-              Expanded(
-                child: _ToggleButton(
-                  label: m.label,
-                  sublabel: switch (m) {
-                    ScoringMethod.ai => 'Gemini',
-                    ScoringMethod.sql => 'Miễn phí, tức thì',
-                    ScoringMethod.both => 'AI + SQL',
-                  },
-                  selected: state.method == m,
-                  onTap: state.loading ? null : () => _vm.setMethod(m),
-                ),
-              ),
-              if (m != ScoringMethod.values.last) const SizedBox(width: 8),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-
   /// Inline link inside a Text.rich (WidgetSpan avoids recognizer disposal).
   InlineSpan _link(BuildContext context, String text, VoidCallback onTap) => WidgetSpan(
         alignment: PlaceholderAlignment.baseline,
@@ -327,11 +287,9 @@ class _ToggleButton extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.sublabel,
   });
 
   final String label;
-  final String? sublabel;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -348,31 +306,16 @@ class _ToggleButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.xl),
           border: Border.all(color: selected ? AppColors.primary : AppColors.border),
         ),
-        child: Column(
-          children: [
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: selected ? AppColors.primary : AppColors.inkSoft,
-              ),
-            ),
-            if (sublabel != null)
-              Text(
-                sublabel!,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: selected ? AppColors.primary : AppColors.inkMuted,
-                ),
-              ),
-          ],
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: selected ? AppColors.primary : AppColors.inkSoft,
+          ),
         ),
       ),
     );

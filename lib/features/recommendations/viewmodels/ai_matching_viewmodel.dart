@@ -163,7 +163,7 @@ class AiMatchingViewModel extends StateNotifier<AiMatchingState> {
   static const networkMessage =
       'Không kết nối được máy chủ AI. Vui lòng kiểm tra kết nối mạng và thử lại.';
   static const allBatchesFailedMessage =
-      'Tất cả batch đều thất bại. Kiểm tra cấu hình GEMINI_API_KEY trong Cấu hình hệ thống.';
+      'Tất cả batch đều thất bại. Kiểm tra cấu hình API key AI trong Cấu hình hệ thống → AI Logs.';
   /// Web routes are JWT-protected (`router.use(authenticate)`); here the
   /// Gemini key lives in systemConfigurations which only signed-in users may
   /// read, so a guest asking for AI fails fast instead of retrying 3× per batch.
