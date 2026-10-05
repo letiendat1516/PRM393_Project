@@ -71,14 +71,24 @@ class AppConfig {
   static const String deepseekApiKey =
       String.fromEnvironment('DEEPSEEK_API_KEY');
 
-  // ── z.ai (Zhipu GLM, OpenAI-compatible) ───────────────────────────────
+  // ── z.ai (international GLM endpoint, OpenAI-compatible) ──────────────
+  //
+  // Base URL per https://docs.z.ai/api-reference/llm/chat-completion — the
+  // `open.bigmodel.cn` host is the Zhipu China API which uses separate
+  // keys. Keys issued on z.ai console only work against `api.z.ai` host.
+  // Full URL hit by the client: {baseUrl}/chat/completions.
+  //
+  // Model default = `glm-4.5-flash` (cheap tier recommended by the
+  // quickstart for high-volume use). Override to `glm-4.6` for the
+  // flagship or any other model from the z.ai catalog via
+  // `--dart-define=ZAI_MODEL=...` or systemConfigurations/AI_PROVIDER_ORDER.
   static const String zaiBaseUrl = String.fromEnvironment(
     'ZAI_BASE_URL',
-    defaultValue: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultValue: 'https://api.z.ai/api/paas/v4',
   );
   static const String zaiModel = String.fromEnvironment(
     'ZAI_MODEL',
-    defaultValue: 'glm-4-flash',
+    defaultValue: 'glm-4.5-flash',
   );
   static const String zaiApiKey = String.fromEnvironment('ZAI_API_KEY');
 
