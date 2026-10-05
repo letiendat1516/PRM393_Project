@@ -410,6 +410,14 @@ class GeminiService {
   /// [keyOverride] is non-null it bypasses the resolver chain so the
   /// admin can validate a freshly-typed key BEFORE saving it to
   /// Firestore. Returns a status / error pair the UI banner renders.
+  ///
+  /// On Flutter Web any browser CORS block surfaces here as a
+  /// ClientException with message "ClientException: Failed to fetch,
+  /// uri=..." — we preserve that verbatim so the admin can tell it
+  /// apart from a 401/503. In practice this means admin key testing
+  /// only works reliably in release / mobile builds, since the
+  /// upstream AI providers do not add Access-Control-Allow-Origin for
+  /// localhost dev servers.
   Future<({bool valid, int? status, int latencyMs, String? error})>
       testProviderKey(String provider, String? keyOverride) async {
     final sw = Stopwatch()..start();
@@ -461,12 +469,22 @@ class GeminiService {
         error: null
       );
     } catch (e) {
-      final f = Failure.from(e);
+      // Preserve the raw exception string on web so the admin sees
+      // "Failed to fetch" (= CORS block) rather than the generic
+      // "Đã có lỗi xảy ra" that Failure.from(e) returns for unknown
+      // exception types.
+      final f = e is Failure ? e : Failure.from(e);
+      final raw = e.toString();
+      final isLikelyCors =
+          raw.contains('Failed to fetch') || raw.contains('ClientException');
       return (
         valid: false,
         status: f.status,
         latencyMs: sw.elapsedMilliseconds,
-        error: f.message
+        error: isLikelyCors
+            ? 'Trình duyệt chặn request (CORS). Dùng Chrome DevTools → Network '
+                'để xem chi tiết, hoặc test bằng build mobile / production.'
+            : f.message,
       );
     }
   }
